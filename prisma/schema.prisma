@@ -1,0 +1,530 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  firebaseUid   String?   @unique
+  email         String    @unique
+  passwordHash  String?
+  name          String
+  role          String    @default("STUDENT") // STUDENT, ADMIN, SUPER_ADMIN, JUDGE, HR, COMPANY
+  isVerified    Boolean   @default(true)
+  avatarUrl     String?
+  status        String    @default("ACTIVE") // ACTIVE, SUSPENDED, PENDING
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  studentProfile        StudentProfile?
+  judgeProfile          JudgeProfile?
+  company               Company?
+  subscriptions         Subscription[]
+  payments              Payment[]
+  refunds               Refund[]
+  projectAccesses       ProjectAccess[]
+  projectDownloads      ProjectDownloadLog[]
+  internshipApplications InternshipApplication[]
+  hackathonRegistrations HackathonRegistration[]
+  hackathonSubmissions  HackathonSubmission[]
+  hackathonScores       HackathonScore[]
+  hackathonJudges       HackathonJudge[]
+  certificates          Certificate[]
+  sessionRegistrations  SessionRegistration[]
+  notifications         Notification[]
+  supportTickets        SupportTicket[]
+  auditLogs             AuditLog[]
+}
+
+model StudentProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  username        String?  @unique
+  mobile          String?
+  college         String?
+  department      String?
+  year            String?
+  skills          String?  // JSON string or comma-separated
+  github          String?
+  linkedin        String?
+  portfolio       String?
+  resumeUrl       String?
+  bio             String?
+  isPublic        Boolean  @default(true)
+  profileScore    Int      @default(85)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model JudgeProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String?
+  organization String?
+  bio          String?
+  expertise    String?
+  createdAt    DateTime @default(now())
+}
+
+model Company {
+  id           String        @id @default(cuid())
+  userId       String        @unique
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  logoUrl      String?
+  description  String?
+  website      String?
+  location     String?
+  industry     String?
+  contactEmail String?
+  verified     Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  internships  Internship[]
+}
+
+model Plan {
+  id                String         @id @default(cuid())
+  name              String
+  code              String         @unique // STARTER, PLUS, PRO, CAREER
+  price             Int            // in INR
+  interval          String         @default("monthly") // monthly, yearly, lifetime
+  tagline           String?
+  features          String         // JSON array string
+  projectAccess     Boolean        @default(true)
+  certificateAccess Boolean        @default(true)
+  hrSessionAccess   Boolean        @default(true)
+  isPopular         Boolean        @default(false)
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  subscriptions     Subscription[]
+  payments          Payment[]
+}
+
+model Subscription {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId      String
+  plan        Plan      @relation(fields: [planId], references: [id])
+  paymentId   String?
+  startDate   DateTime  @default(now())
+  endDate     DateTime
+  status      String    @default("ACTIVE") // ACTIVE, EXPIRED, CANCELLED
+  autoRenew   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Payment {
+  id          String    @id @default(cuid())
+  orderId     String    @unique
+  paymentId   String?   @unique
+  signature   String?
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId      String?
+  plan        Plan?     @relation(fields: [planId], references: [id])
+  hackathonId String?
+  hackathon   Hackathon? @relation(fields: [hackathonId], references: [id])
+  amount      Int       // in INR
+  currency    String    @default("INR")
+  status      String    @default("CREATED") // CREATED, SUCCESS, FAILED, REFUNDED
+  gateway     String    @default("RAZORPAY")
+  createdAt   DateTime  @default(now())
+  verifiedAt  DateTime?
+  refunds     Refund[]
+  registrations HackathonRegistration[]
+}
+
+model Refund {
+  id          String    @id @default(cuid())
+  paymentId   String
+  payment     Payment   @relation(fields: [paymentId], references: [id])
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  amount      Int
+  reason      String
+  status      String    @default("PENDING") // PENDING, APPROVED, REJECTED, PROCESSED
+  approvedBy  String?
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model Project {
+  id               String               @id @default(cuid())
+  title            String
+  slug             String               @unique
+  shortDesc        String
+  description      String
+  problemStatement String?
+  features         String?              // JSON array
+  techStack        String               // JSON array
+  difficulty       String               @default("Beginner") // Beginner, Intermediate, Advanced
+  category         String               // Web Development, AI/ML, Mobile, Cloud, Full Stack
+  isPremium        Boolean              @default(false)
+  thumbnail        String?
+  demoUrl          String?
+  githubUrl        String?
+  sourceCodeZipUrl String?
+  installation     String?
+  downloadCount    Int                  @default(0)
+  createdAt        DateTime             @default(now())
+  accesses         ProjectAccess[]
+  downloads        ProjectDownloadLog[]
+}
+
+model ProjectAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  grantedAt DateTime @default(now())
+}
+
+model ProjectDownloadLog {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  ipAddress    String?
+  userAgent    String?
+  downloadedAt DateTime @default(now())
+}
+
+model Internship {
+  id               String                  @id @default(cuid())
+  companyId        String
+  company          Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title            String
+  role             String
+  slug             String                  @unique
+  description      String
+  responsibilities String?                 // JSON array
+  requirements     String?                 // JSON array
+  skills           String                  // JSON array
+  location         String                  @default("Remote")
+  mode             String                  @default("Remote") // Remote, Hybrid, On-site
+  duration         String                  @default("6 Weeks")
+  stipend          Int                     @default(0) // ₹ per month
+  stipendType      String                  @default("Fixed")
+  openings         Int                     @default(5)
+  deadline         DateTime
+  startDate        DateTime?
+  status           String                  @default("ACTIVE") // ACTIVE, CLOSED, DRAFT
+  createdAt        DateTime                @default(now())
+  applications     InternshipApplication[]
+}
+
+model InternshipApplication {
+  id           String                 @id @default(cuid())
+  internshipId String
+  internship   Internship             @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+  studentId    String
+  student      User                   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  resumeUrl    String?
+  coverLetter  String?
+  github       String?
+  portfolio    String?
+  status       String                 @default("APPLIED") // APPLIED, UNDER_REVIEW, SHORTLISTED, INTERVIEW_SCHEDULED, SELECTED, REJECTED, WITHDRAWN, COMPLETED
+  reviewedAt   DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  interview    Interview?
+  offer        InternshipOffer?
+  evaluation   InternshipEvaluation?
+}
+
+model Interview {
+  id              String                @id @default(cuid())
+  applicationId   String                @unique
+  application     InternshipApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  scheduledAt     DateTime
+  meetingLink     String?
+  notes           String?
+  status          String                @default("SCHEDULED") // SCHEDULED, COMPLETED, CANCELLED
+  interviewerName String?
+  createdAt       DateTime              @default(now())
+}
+
+model InternshipOffer {
+  id             String                @id @default(cuid())
+  applicationId  String                @unique
+  application    InternshipApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  stipend        Int
+  joiningDate    DateTime
+  offerLetterUrl String?
+  status         String                @default("OFFERED") // OFFERED, ACCEPTED, DECLINED
+  createdAt      DateTime              @default(now())
+}
+
+model InternshipEvaluation {
+  id            String                @id @default(cuid())
+  applicationId String                @unique
+  application   InternshipApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  rating        Int                   @default(5)
+  feedback      String?
+  certified     Boolean               @default(true)
+  createdAt     DateTime              @default(now())
+}
+
+model Hackathon {
+  id                   String                  @id @default(cuid())
+  title                String
+  slug                 String                  @unique
+  tagLine              String?
+  description          String
+  fullDescription      String?
+  problemStatement     String?
+  problemReleasedAt    DateTime?
+  problemPublished     Boolean                 @default(false)
+  entryFee             Int                     @default(35) // in INR
+  prizePool            Int                     @default(50000)
+  startDate            DateTime
+  endDate              DateTime
+  registrationDeadline DateTime
+  minTeamSize          Int                     @default(1)
+  maxTeamSize          Int                     @default(4)
+  registrationMode     String                  @default("BOTH") // INDIVIDUAL_ONLY, TEAM_ONLY, BOTH
+  submissionMethod     String                  @default("WEBSITE") // WEBSITE, GOOGLE_FORM
+  googleFormUrl        String?
+  prizes               String?                 // JSON array
+  rules                String?                 // JSON array
+  guidelines           String?
+  judgingCriteria      String?                 // JSON array of { criterion: string, maxScore: number }
+  contactDetails       String?
+  problemStatementIds  String?                 // JSON array
+  rounds               String?                 // JSON array of HackathonRound
+  eligibility          String?
+  faqs                 String?                 // JSON array
+  bannerUrl            String?
+  status               String                  @default("UPCOMING") // UPCOMING, ONGOING, JUDGING, COMPLETED, PUBLISHED, DRAFT
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt @default(now())
+  registrations        HackathonRegistration[]
+  submissions          HackathonSubmission[]
+  judges               HackathonJudge[]
+  winners              HackathonWinner[]
+  payments             Payment[]
+}
+
+model ProblemStatement {
+  id                      String    @id @default(cuid())
+  slug                    String    @unique
+  title                   String
+  shortDescription        String
+  fullProblemDescription  String
+  background              String?
+  problemCategory         String    @default("Open Innovation")
+  domain                  String    @default("Software Engineering")
+  difficulty              String    @default("MEDIUM") // EASY, MEDIUM, HARD
+  organization            String    @default("SC TECH Original Challenge")
+  organizationType        String    @default("SC_TECH_ORIGINAL")
+  location                String    @default("India / Global")
+  targetUsers             String?
+  existingChallenges      String?
+  expectedOutcome         String?
+  proposedSolutionAreas   String?   // JSON array
+  requiredSkills          String?   // JSON array
+  technologySuggestions   String?   // JSON array
+  constraints             String?
+  eligibility             String?
+  teamSizeMin             Int       @default(1)
+  teamSizeMax             Int       @default(4)
+  submissionRequirements  String?
+  evaluationCriteria      String?   // JSON array
+  deadline                DateTime?
+  sourceUrl               String?
+  sourceName              String?
+  isAiGenerated           Boolean   @default(false)
+  verificationStatus      String    @default("SC_TECH_ORIGINAL")
+  createdBy               String    @default("ADMIN")
+  status                  String    @default("DRAFT") // DRAFT, PENDING_REVIEW, PUBLISHED, CLOSED, ARCHIVED
+  hackathonId             String?
+  roundNumber             Int       @default(1)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt @default(now())
+}
+
+model HackathonRegistration {
+  id             String                @id @default(cuid())
+  hackathonId    String
+  hackathon      Hackathon             @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registrationNo String                @unique
+  paymentId      String?
+  payment        Payment?              @relation(fields: [paymentId], references: [id])
+  status         String                @default("CONFIRMED") // CONFIRMED, PENDING, CANCELLED
+  createdAt      DateTime              @default(now())
+  submission     HackathonSubmission?
+}
+
+model HackathonSubmission {
+  id             String                @id @default(cuid())
+  hackathonId    String
+  hackathon      Hackathon             @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registrationId String                @unique
+  registration   HackathonRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  projectName    String
+  description    String
+  repoUrl        String
+  liveUrl        String?
+  videoUrl       String?
+  techStack      String                // JSON array
+  documentation  String?
+  submittedAt    DateTime              @default(now())
+  scores         HackathonScore[]
+  winner         HackathonWinner?
+}
+
+model HackathonJudge {
+  id          String    @id @default(cuid())
+  hackathonId String
+  hackathon   Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  judgeId     String
+  judge       User      @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+  assignedAt  DateTime  @default(now())
+}
+
+model HackathonScore {
+  id                 String              @id @default(cuid())
+  submissionId       String
+  submission         HackathonSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  judgeId            String
+  judge              User                @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+  problemScore       Int                 @default(0) // max 20
+  functionalityScore Int                 @default(0) // max 25
+  codeQualityScore   Int                 @default(0) // max 20
+  uiUxScore          Int                 @default(0) // max 15
+  innovationScore    Int                 @default(0) // max 10
+  presentationScore  Int                 @default(0) // max 10
+  totalScore         Int                 @default(0) // max 100
+  feedback           String?
+  isFinal            Boolean             @default(true)
+  submittedAt        DateTime            @default(now())
+}
+
+model HackathonWinner {
+  id           String              @id @default(cuid())
+  hackathonId  String
+  hackathon    Hackathon           @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  submissionId String              @unique
+  submission   HackathonSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  rank         Int                 // 1, 2, 3, etc.
+  title        String              // Winner, First Runner-up, Second Runner-up, Special Mention
+  prizeAmount  Int
+  isApproved   Boolean             @default(false)
+  approvedBy   String?
+  announcedAt  DateTime?
+  prize        HackathonPrize?
+}
+
+model HackathonPrize {
+  id             String          @id @default(cuid())
+  winnerId       String          @unique
+  winner         HackathonWinner @relation(fields: [winnerId], references: [id], onDelete: Cascade)
+  amount         Int
+  status         String          @default("PENDING") // PENDING, APPROVED, PROCESSING, PAID, FAILED
+  transactionRef String?
+  approvedBy     String?
+  paidAt         DateTime?
+  createdAt      DateTime        @default(now())
+}
+
+model Certificate {
+  id            String   @id @default(cuid())
+  certificateNo String   @unique // e.g. SCT-HACK-2026-000123
+  studentId     String
+  student       User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentName   String
+  title         String   // CERTIFICATE OF PARTICIPATION, CERTIFICATE OF EXCELLENCE, etc.
+  eventName     String   // SC TECH HACKATHON 2026, Full Stack Internship, etc.
+  type          String   // HACKATHON_PARTICIPATION, HACKATHON_WINNER, INTERNSHIP_COMPLETION, COURSE_COMPLETION
+  issueDate     DateTime @default(now())
+  qrCodeData    String?  // Verification URL
+  pdfUrl        String?
+  status        String   @default("VERIFIED") // VERIFIED, REVOKED
+  metadata      String?  // JSON
+  createdAt     DateTime @default(now())
+}
+
+model HRSession {
+  id              String                @id @default(cuid())
+  title           String
+  speakerName     String
+  speakerRole     String
+  speakerCompany  String
+  speakerAvatar   String?
+  topic           String
+  scheduledAt     DateTime
+  durationMinutes Int                   @default(60)
+  meetUrl         String?
+  maxAttendees    Int                   @default(100)
+  isRecorded      Boolean               @default(false)
+  recordingUrl    String?
+  status          String                @default("UPCOMING") // UPCOMING, LIVE, COMPLETED, CANCELLED
+  createdAt       DateTime              @default(now())
+  registrations   SessionRegistration[]
+}
+
+model SessionRegistration {
+  id           String    @id @default(cuid())
+  sessionId    String
+  session      HRSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attended     Boolean   @default(false)
+  registeredAt DateTime  @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, SUCCESS, WARNING, PAYMENT, HACKATHON, INTERNSHIP, CERTIFICATE
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model SupportTicket {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name       String
+  email      String
+  subject    String
+  category   String   @default("General") // General, Payment, Hackathon, Internship, Account, Bug
+  message    String
+  status     String   @default("OPEN") // OPEN, IN_PROGRESS, WAITING, RESOLVED, CLOSED
+  priority   String   @default("NORMAL") // LOW, NORMAL, HIGH, URGENT
+  adminNotes String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  actor     User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  actorRole String
+  action    String   // e.g. PAYMENT_STATUS_UPDATE, CERTIFICATE_ISSUED, WINNER_APPROVED, USER_SUSPENDED
+  entity    String   // Payment, Certificate, HackathonWinner, User
+  entityId  String
+  ipAddress String?
+  details   String?  // JSON string
+  createdAt DateTime @default(now())
+}

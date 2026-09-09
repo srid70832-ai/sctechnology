@@ -1,0 +1,90 @@
+[
+  {
+    "id": "team-cmtlsxfrl001353vgrxl9rn5m-sc26-tm-exvh",
+    "teamId": "SC26-TM-EXVH",
+    "hackathonId": "cmtlsxfrl001353vgrxl9rn5m",
+    "hackathonTitle": "SC TECH HACKATHON 2026",
+    "name": "DevSquad-9457",
+    "leaderId": "cmtn7cz5n0000kif3ijonze6w",
+    "leaderName": "Leader Alex",
+    "leaderEmail": "team_leader@sctech.test",
+    "joinCode": "G552DJ",
+    "inviteToken": "bqx7p5g38xwuslcyhhymz9nd",
+    "members": [
+      {
+        "userId": "cmtn7cz5n0000kif3ijonze6w",
+        "name": "Leader Alex",
+        "email": "team_leader@sctech.test",
+        "role": "LEADER",
+        "registrationNo": "REG-SC-T-9996",
+        "joinedAt": "2026-09-04T17:06:25.889Z",
+        "college": null,
+        "department": null
+      },
+      {
+        "userId": "cmtn7cz600001kif3lv1abiaz",
+        "name": "Member Bob",
+        "email": "team_member@sctech.test",
+        "role": "MEMBER",
+        "registrationNo": "REG-SC-T-5257",
+        "joinedAt": "2026-09-04T17:06:36.673Z",
+        "college": null,
+        "department": null
+      }
+    ],
+    "minTeamSize": 2,
+    "maxTeamSize": 4,
+    "round": 2,
+    "roundStatus": "ROUND_1_QUALIFIED",
+    "submission": {
+      "projectName": "NexusAI Health Platform",
+      "description": "Comprehensive health monitoring using edge AI models.",
+      "repoUrl": "https://github.com/alex/nexus-ai",
+      "liveUrl": "https://nexus-ai.vercel.app",
+      "videoUrl": "https://youtube.com/watch?v=123456",
+      "techStack": [
+        "Next.js",
+        "PyTorch",
+        "FastAPI",
+        "TailwindCSS"
+      ],
+      "submittedAt": "2026-09-04T17:06:47.214Z",
+      "submittedBy": "cmtn7cz5n0000kif3ijonze6w"
+    },
+    "status": "ACTIVE",
+    "createdAt": "2026-09-04T17:06:25.889Z",
+    "updatedAt": "2026-09-04T17:06:56.934Z"
+  },
+  {
+    "id": "team-cmtlsxfry001453vgr7lrwqwj-sc26-tm-u582",
+    "teamId": "SC26-TM-U582",
+    "hackathonId": "cmtlsxfry001453vgr7lrwqwj",
+    "hackathonTitle": "AI Innovation Sprint 2026",
+    "name": "SC",
+    "leaderId": "cmtn65bb30000rr9otwmzi1cv",
+    "leaderName": "Sri CS",
+    "leaderEmail": "srics1315@gmail.com",
+    "joinCode": "PEQVLW",
+    "inviteToken": "rovqbwlrhly6la3yqrppyr13",
+    "members": [
+      {
+        "userId": "cmtn65bb30000rr9otwmzi1cv",
+        "name": "Sri CS",
+        "email": "srics1315@gmail.com",
+        "role": "LEADER",
+        "registrationNo": "REG-AI-I-4262",
+        "joinedAt": "2026-09-04T17:25:47.176Z",
+        "college": null,
+        "department": null
+      }
+    ],
+    "minTeamSize": 2,
+    "maxTeamSize": 4,
+    "round": 1,
+    "roundStatus": "REGISTERED",
+    "submission": null,
+    "status": "ACTIVE",
+    "createdAt": "2026-09-04T17:25:47.176Z",
+    "updatedAt": "2026-09-04T17:25:48.067Z"
+  }
+]
