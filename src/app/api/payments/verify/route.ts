@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyFirebaseToken } from "@/lib/firebase-admin";
 import { getServerSession } from "@/lib/auth";
 import { verifyRazorpaySignature } from "@/lib/payment";
+import { processReferralConversion } from "@/lib/referrals/service";
 import { db } from "@/lib/firebase";
 import { 
   collection, 
@@ -111,6 +112,24 @@ export async function POST(req: Request) {
         verifiedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
       });
+    }
+
+        // Process Referral Conversion for Subscription Purchase
+    try {
+      const payAmount = orderSnap.empty ? 500 : (orderSnap.docs[0].data().amount || 500);
+      await processReferralConversion({
+        referredUid: uid,
+        eventType: "SUBSCRIPTION_PURCHASED",
+        amount: payAmount,
+        metadata: {
+          planId: planId?.toUpperCase() || "PRO",
+          orderId,
+          paymentId,
+          billingCycle,
+        },
+      });
+    } catch (refErr) {
+      console.warn("Referral conversion processing notice:", refErr);
     }
 
     // 4. Activate Subscription in Cloud Firestore (subscriptions/{subscriptionId})

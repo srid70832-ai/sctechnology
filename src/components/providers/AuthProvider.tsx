@@ -63,6 +63,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (!userSnap.exists()) {
+        // Auto-claim referral code if saved in localStorage or cookie
+        if (typeof window !== "undefined") {
+          const storedRef = localStorage.getItem("sctech_referral_code") || sessionStorage.getItem("sctech_referral_code");
+          if (storedRef) {
+            try {
+              fetch("/api/referrals/claim", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ referralCode: storedRef, source: "WEBSITE" }),
+              }).catch(() => {});
+            } catch {}
+          }
+        }
         await setDoc(userRef, {
           uid: fbUser.uid,
           email: fbUser.email || "",

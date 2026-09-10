@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, signToken, AUTH_COOKIE_NAME } from "@/lib/auth";
+import { attributeSignup } from "@/lib/referrals/service";
 
 export async function POST(req: Request) {
   try {
-    const { name, email, password, role = "STUDENT", college, department } = await req.json();
+    const { name, email, password, role = "STUDENT", college, department, referralCode } = await req.json();
 
     if (!name || !email || !password) {
       return NextResponse.json({ error: "Name, email, and password are required" }, { status: 400 });
@@ -53,6 +54,21 @@ export async function POST(req: Request) {
     });
 
     // Create a welcome notification
+        // Attribute referral if code provided
+    if (referralCode) {
+      try {
+        await attributeSignup({
+          newUserId: newUser.id,
+          newUserName: newUser.name,
+          newUserEmail: newUser.email,
+          referralCode,
+          source: "WEBSITE",
+        });
+      } catch (refErr) {
+        console.warn("Referral signup attribution notice:", refErr);
+      }
+    }
+
     await prisma.notification.create({
       data: {
         userId: newUser.id,

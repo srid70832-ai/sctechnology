@@ -1,15 +1,18 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
-import { Lock, Mail, User, Loader2, ArrowRight } from "lucide-react";
+import { Lock, Mail, User, Loader2, ArrowRight, Gift, Sparkles } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [referralCode, setReferralCode] = useState<string>("");
   const { registerWithEmail, loginWithGoogle } = useAuth();
   const { success, error } = useToast();
 
@@ -19,6 +22,20 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loadingEmail, setLoadingEmail] = useState(false);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
+
+  React.useEffect(() => {
+    const refFromUrl = searchParams.get("ref");
+    if (refFromUrl) {
+      setReferralCode(refFromUrl.trim().toUpperCase());
+      if (typeof window !== "undefined") {
+        localStorage.setItem("sctech_referral_code", refFromUrl.trim().toUpperCase());
+      }
+    } else if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("sctech_referral_code");
+      if (stored) setReferralCode(stored.trim().toUpperCase());
+    }
+  }, [searchParams]);
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,5 +268,18 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center text-slate-400">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      </div>
+    }>
+      <RegisterForm />
+    </Suspense>
   );
 }

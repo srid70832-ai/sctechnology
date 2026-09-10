@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
 import { generateRegistrationNo, generateCertificateId } from "@/lib/utils";
 import { verifyRazorpaySignature } from "@/lib/payment";
+import { processReferralConversion } from "@/lib/referrals/service";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
@@ -111,6 +112,24 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         link: `/hackathons/${hackathon.slug}`,
       },
     });
+
+    // 6. Process Referral Conversion for Hackathon Registration (Free or Paid)
+    try {
+      await processReferralConversion({
+        referredUid: session.userId,
+        eventType: "HACKATHON_REGISTERED",
+        amount: hackathon.entryFee || 0,
+        metadata: {
+          hackathonId: hackathon.id,
+          hackathonTitle: hackathon.title,
+          registrationId: registration.id,
+          registrationNo: regNo,
+          paymentId: paymentRecordId,
+        },
+      });
+    } catch (refErr) {
+      console.warn("Hackathon referral conversion notice:", refErr);
+    }
 
     return NextResponse.json({
       success: true,

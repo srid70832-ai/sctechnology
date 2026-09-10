@@ -19,7 +19,8 @@ import {
   Briefcase,
   Bell,
   Search,
-  Lightbulb
+  Lightbulb,
+  Gift
 } from "lucide-react";
 
 export const Navbar = () => {
@@ -49,6 +50,7 @@ export const Navbar = () => {
     { name: "Hackathons", href: "/hackathons" },
     { name: "Projects", href: "/projects" },
     { name: "Idea Link", href: "/idea-link" },
+    { name: "Refer & Earn", href: "/referrals" },
     { name: "Plans", href: "/plans" },
     { name: "About Us", href: "/about" },
   ];
@@ -196,6 +198,14 @@ export const Navbar = () => {
                           <Lightbulb className="w-4 h-4 text-amber-400" />
                           SC Idea Link
                         </Link>
+                        <Link
+                          href="/referrals"
+                          className="flex items-center gap-2.5 px-4 py-2.5 text-purple-300 hover:text-white hover:bg-slate-800 transition"
+                          onClick={() => setUserDropdownOpen(false)}
+                        >
+                          <Gift className="w-4 h-4 text-purple-400" />
+                          Refer & Earn Rewards
+                        </Link>
                       </>
                     )}
 
@@ -216,6 +226,14 @@ export const Navbar = () => {
                         >
                           <Lightbulb className="w-4 h-4 text-amber-400" />
                           SC Idea Link Hub
+                        </Link>
+                        <Link
+                          href="/admin/referrals"
+                          className="flex items-center gap-2.5 px-4 py-2.5 text-purple-300 hover:text-white hover:bg-slate-800 transition"
+                          onClick={() => setUserDropdownOpen(false)}
+                        >
+                          <Gift className="w-4 h-4 text-purple-400" />
+                          Referral Management
                         </Link>
                       </>
                     )}

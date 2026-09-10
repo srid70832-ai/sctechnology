@@ -26,7 +26,9 @@ import {
   AlertCircle,
   Share2,
   Crown,
-  Layers
+  Layers,
+  Gift,
+  MessageCircle
 } from "lucide-react";
 import { formatDate, formatINR } from "@/lib/utils";
 import { formatISTDate } from "@/lib/platform-models";
@@ -46,6 +48,8 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
   
   // Registration Modal state
   const [showRegModal, setShowRegModal] = useState(false);
+  const [showReferralModal, setShowReferralModal] = useState(false);
+  const [userReferralCode, setUserReferralCode] = useState<string>("SCTECH");
   const [regMode, setRegMode] = useState<"CHOICE" | "CREATE_TEAM" | "JOIN_TEAM">("CHOICE");
   const [teamName, setTeamName] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -59,6 +63,27 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
   const [description, setDescription] = useState("");
   const [techStack, setTechStack] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+
+  useEffect(() => {
+    const fetchUserRef = async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (token) {
+          const res = await fetch("/api/referrals/my-referral", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.stats?.referralCode) {
+              setUserReferralCode(data.stats.referralCode);
+            }
+          }
+        }
+      } catch {}
+    };
+    if (user) fetchUserRef();
+  }, [user]);
 
   const fetchDetail = async () => {
     try {
@@ -332,7 +357,14 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
             </div>
 
             {/* Action Area */}
-            <div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <button
+                onClick={() => setShowReferralModal(true)}
+                className="px-5 py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-purple-500/50 text-purple-300 font-bold text-xs flex items-center gap-2 shadow-lg transition"
+              >
+                <Gift className="w-4 h-4 text-purple-400" />
+                <span>Invite & Earn</span>
+              </button>
               {hackathon.isRegistered ? (
                 <div className="space-y-1 text-right">
                   <div className="px-5 py-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-2">

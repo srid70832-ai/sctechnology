@@ -26,7 +26,8 @@ import {
   Compass,
   ShieldCheck,
   Layers,
-  Lightbulb
+  Lightbulb,
+  Gift
 } from "lucide-react";
 import { formatINR, formatDate } from "@/lib/utils";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -219,6 +220,21 @@ export default function AdminDashboardPage() {
             </div>
             <div className="text-2xl font-black text-white">Registry</div>
             <span className="text-[10px] text-blue-400">Cryptographic Issuance →</span>
+          </Link>
+
+          <Link
+            href="/admin/referrals"
+            className="p-4 rounded-2xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-purple-500/50 transition-all shadow-lg space-y-1 group"
+          >
+            <div className="flex justify-between items-center text-slate-400">
+              <span className="text-[11px] font-semibold text-slate-400 group-hover:text-purple-300 transition">Referral & Rewards</span>
+              <div className="flex items-center gap-1 text-purple-400">
+                <Gift className="w-3.5 h-3.5" />
+                <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition" />
+              </div>
+            </div>
+            <div className="text-2xl font-black text-white">Program</div>
+            <span className="text-[10px] text-purple-400">Live Config & Payouts →</span>
           </Link>
 
           <Link
