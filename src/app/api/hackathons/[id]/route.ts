@@ -5,7 +5,7 @@ import { db } from "@/lib/firebase";
 import { COLLECTIONS } from "@/lib/firestore";
 import { doc, getDoc } from "firebase/firestore";
 import { findUserTeam } from "@/lib/team-storage";
-import { HackathonTeam } from "@/lib/hackathon-team-models";
+import { HackathonTeam, computeTeamPaymentStatus } from "@/lib/hackathon-team-models";
 
 export const dynamic = "force-dynamic";
 
@@ -46,12 +46,14 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     }
 
     const effectiveId = hackathon?.id || firestoreHackathon?.id || params.id;
+    const entryFee = firestoreHackathon?.registrationFee ?? hackathon?.entryFee ?? 0;
 
     let isRegistered = false;
     let userRegistration = null;
     let userSubmission = null;
     let userTeam: HackathonTeam | null = null;
     let isLeader = false;
+    let userMemberPaymentStatus = "NOT_REQUIRED";
 
     if (session) {
       // 1. Check Prisma registration
@@ -63,6 +65,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
           },
           include: {
             submission: true,
+            payment: true,
           },
         });
 
@@ -73,6 +76,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
             registrationNo: reg.registrationNo,
             status: reg.status,
             createdAt: reg.createdAt,
+            payment: reg.payment,
           };
           userSubmission = reg.submission;
         }
@@ -82,9 +86,21 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       try {
         const t = await findUserTeam(effectiveId, session.userId);
         if (t) {
-          userTeam = t;
+          const stats = computeTeamPaymentStatus(t, entryFee);
+          userTeam = {
+            ...t,
+            paymentStatus: stats.paymentStatus,
+            paidMemberCount: stats.paidMemberCount,
+            totalPaidAmount: stats.totalPaidAmount,
+          };
           isLeader = t.leaderId === session.userId;
           isRegistered = true;
+          
+          const currentMember = t.members.find((m) => m.userId === session.userId);
+          if (currentMember) {
+            userMemberPaymentStatus = currentMember.paymentStatus || (entryFee > 0 ? "PENDING" : "NOT_REQUIRED");
+          }
+
           if (t.submission) {
             userSubmission = t.submission;
           }
@@ -114,7 +130,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         tagLine: hackathon?.tagLine,
         description: firestoreHackathon?.fullDescription || firestoreHackathon?.shortDescription || hackathon?.description,
         bannerUrl: firestoreHackathon?.bannerUrl || hackathon?.bannerUrl,
-        entryFee: firestoreHackathon?.registrationFee ?? hackathon?.entryFee ?? 0,
+        entryFee,
         prizePool: firestoreHackathon?.prizePool ?? hackathon?.prizePool ?? 50000,
         startDate: firestoreHackathon?.startDate || hackathon?.startDate,
         endDate: firestoreHackathon?.endDate || hackathon?.endDate,
@@ -135,6 +151,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         userSubmission,
         userTeam,
         isLeader,
+        userMemberPaymentStatus,
       },
     });
   } catch (error) {

@@ -40,6 +40,9 @@ export const COLLECTIONS = {
   PLANS: "plans",
   SUBSCRIPTIONS: "subscriptions",
   PAYMENTS: "payments",
+  HACKATHON_RESULTS: "hackathonResults",
+  STUDENT_ACHIEVEMENTS: "studentAchievements",
+  INTERNSHIP_ACHIEVEMENTS: "internshipAchievements",
   AUDIT_LOGS: "auditLogs",
 };
 

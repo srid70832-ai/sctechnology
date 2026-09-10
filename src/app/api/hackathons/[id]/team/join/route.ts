@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth";
 import { getStudentProfile } from "@/lib/firestore";
-import { HackathonTeam, TeamMemberItem } from "@/lib/hackathon-team-models";
+import { 
+  HackathonTeam, 
+  TeamMemberItem, 
+  MemberPaymentStatus,
+  computeTeamPaymentStatus 
+} from "@/lib/hackathon-team-models";
 import { 
   findTeamByCodeOrToken, 
   getTeamsForHackathon, 
@@ -10,6 +15,8 @@ import {
 import { prisma } from "@/lib/prisma";
 import { generateRegistrationNo } from "@/lib/utils";
 import { isDeadlinePassed } from "@/lib/platform-models";
+import { verifyRazorpaySignature } from "@/lib/payment";
+import { processReferralConversion } from "@/lib/referrals/service";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +32,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const hackathonId = params.id;
     const body = await req.json();
-    const { joinCode, inviteToken } = body;
+    const { joinCode, inviteToken, orderId, paymentId, signature } = body;
 
     if (!joinCode && !inviteToken) {
       return NextResponse.json({ error: "Join Code or Invite Token is required" }, { status: 400 });
@@ -96,7 +103,35 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       );
     }
 
-    // 7. Fetch student profile details
+    // 7. Check payment status for paid hackathons
+    const isPaidHackathon = hackathon.entryFee > 0;
+    let memberPaymentStatus: MemberPaymentStatus = isPaidHackathon ? "PENDING" : "NOT_REQUIRED";
+    let verifiedPaymentRecordId: string | null = null;
+
+    if (isPaidHackathon && signature && orderId && paymentId) {
+      const isValid = verifyRazorpaySignature({ orderId, paymentId, signature });
+      if (isValid) {
+        memberPaymentStatus = "PAID";
+        try {
+          const payment = await prisma.payment.create({
+            data: {
+              orderId,
+              paymentId,
+              signature,
+              userId: session.userId,
+              hackathonId: hackathon.id,
+              amount: hackathon.entryFee,
+              status: "SUCCESS",
+              gateway: "RAZORPAY",
+              verifiedAt: new Date(),
+            },
+          });
+          verifiedPaymentRecordId = payment.id;
+        } catch {}
+      }
+    }
+
+    // 8. Fetch student profile details
     const studentProfile = await getStudentProfile(session.userId);
     const regNo = generateRegistrationNo(hackathon.slug || "HACK");
 
@@ -109,12 +144,22 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       joinedAt: new Date().toISOString(),
       college: studentProfile?.college || null,
       department: studentProfile?.department || null,
+      paymentStatus: memberPaymentStatus,
+      paymentId: paymentId || null,
+      orderId: orderId || null,
+      paymentAmount: memberPaymentStatus === "PAID" ? hackathon.entryFee : 0,
+      paidAt: memberPaymentStatus === "PAID" ? new Date().toISOString() : null,
     };
 
     const updatedMembers = [...targetTeam.members, newMember];
-    const updatedTeam = {
+    const stats = computeTeamPaymentStatus({ ...targetTeam, members: updatedMembers }, hackathon.entryFee);
+
+    const updatedTeam: HackathonTeam = {
       ...targetTeam,
       members: updatedMembers,
+      paymentStatus: stats.paymentStatus,
+      paidMemberCount: stats.paidMemberCount,
+      totalPaidAmount: stats.totalPaidAmount,
       updatedAt: new Date().toISOString(),
     };
 
@@ -128,6 +173,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           hackathonId: hackathon.id || hackathonId,
           userId: session.userId,
           registrationNo: regNo,
+          paymentId: verifiedPaymentRecordId,
           status: "CONFIRMED",
         },
       });
@@ -135,10 +181,30 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       console.warn("Prisma registration sync note:", prismaErr);
     }
 
+    // Process Referral Conversion if paid
+    if (memberPaymentStatus === "PAID") {
+      try {
+        await processReferralConversion({
+          referredUid: session.userId,
+          eventType: "HACKATHON_REGISTERED",
+          amount: hackathon.entryFee,
+          metadata: {
+            hackathonId: hackathon.id,
+            hackathonTitle: hackathon.title,
+            teamId: updatedTeam.id,
+            teamName: updatedTeam.name,
+          },
+        });
+      } catch (refErr) {
+        console.warn("Member referral conversion notice:", refErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: `You have successfully joined "${targetTeam.name}"!`,
       team: updatedTeam,
+      memberPaymentStatus,
     });
   } catch (error: any) {
     console.error("Join Hackathon Team Error:", error);

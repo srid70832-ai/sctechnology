@@ -528,6 +528,14 @@ export default function AdminHackathonsPage() {
 
                   <div className="flex items-center gap-1.5">
                     <Link
+                      href={`/admin/hackathons/${h.id}/results`}
+                      className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[10px] font-bold border border-amber-500/30 flex items-center gap-1"
+                      title="Manage Podium Winners & Results"
+                    >
+                      <Trophy className="w-3 h-3 text-amber-400" />
+                      <span>Results</span>
+                    </Link>
+                    <Link
                       href={`/hackathons/${h.slug || h.id}`}
                       target="_blank"
                       className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 text-blue-400"

@@ -179,6 +179,12 @@ export default function HackathonsListPage() {
             >
               <Globe className="w-3.5 h-3.5 text-purple-400" /> External / Devpost ({normalizedExternal.length})
             </button>
+            <Link
+              href="/leaderboard"
+              className="px-4 py-2 rounded-lg font-medium text-amber-400 hover:text-amber-300 transition flex items-center gap-1.5 border border-amber-500/30 bg-amber-500/10"
+            >
+              <Trophy className="w-3.5 h-3.5 text-amber-400" /> Hall of Fame
+            </Link>
             <button
               onClick={() => setActiveTab("REMOTE")}
               className={`px-4 py-2 rounded-lg font-medium transition ${

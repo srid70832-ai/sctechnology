@@ -5,7 +5,9 @@ import {
   HackathonTeam, 
   generateTeamId, 
   generateJoinCode, 
-  generateInviteToken 
+  generateInviteToken,
+  computeTeamPaymentStatus,
+  MemberPaymentStatus
 } from "@/lib/hackathon-team-models";
 import { 
   findUserTeam, 
@@ -15,6 +17,8 @@ import {
 import { prisma } from "@/lib/prisma";
 import { generateRegistrationNo } from "@/lib/utils";
 import { isDeadlinePassed } from "@/lib/platform-models";
+import { verifyRazorpaySignature } from "@/lib/payment";
+import { processReferralConversion } from "@/lib/referrals/service";
 
 export const dynamic = "force-dynamic";
 
@@ -29,15 +33,28 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     }
 
     const hackathonId = params.id;
-    const userTeam = await findUserTeam(hackathonId, session.userId);
+    const hackathon = await prisma.hackathon.findFirst({
+      where: { OR: [{ id: hackathonId }, { slug: hackathonId }] },
+    });
+
+    const userTeam = await findUserTeam(hackathon?.id || hackathonId, session.userId);
 
     if (!userTeam) {
       return NextResponse.json({ hasTeam: false, team: null });
     }
 
+    const entryFee = hackathon?.entryFee || 0;
+    const stats = computeTeamPaymentStatus(userTeam, entryFee);
+
     return NextResponse.json({
       hasTeam: true,
-      team: userTeam,
+      team: {
+        ...userTeam,
+        paymentStatus: stats.paymentStatus,
+        paidMemberCount: stats.paidMemberCount,
+        totalPaidAmount: stats.totalPaidAmount,
+        totalRequiredAmount: stats.totalRequiredAmount,
+      },
       isLeader: userTeam.leaderId === session.userId,
     });
   } catch (error: any) {
@@ -58,7 +75,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const hackathonId = params.id;
     const body = await req.json();
-    const { teamName } = body;
+    const { teamName, orderId, paymentId, signature } = body;
 
     if (!teamName || !String(teamName).trim()) {
       return NextResponse.json({ error: "Team name is required" }, { status: 400 });
@@ -117,10 +134,38 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       );
     }
 
-    // 6. Fetch student profile to capture department and college
+    // 6. Check payment status for paid hackathons
+    const isPaidHackathon = hackathon.entryFee > 0;
+    let leaderPaymentStatus: MemberPaymentStatus = isPaidHackathon ? "PENDING" : "NOT_REQUIRED";
+    let verifiedPaymentRecordId: string | null = null;
+
+    if (isPaidHackathon && signature && orderId && paymentId) {
+      const isValid = verifyRazorpaySignature({ orderId, paymentId, signature });
+      if (isValid) {
+        leaderPaymentStatus = "PAID";
+        try {
+          const payment = await prisma.payment.create({
+            data: {
+              orderId,
+              paymentId,
+              signature,
+              userId: session.userId,
+              hackathonId: hackathon.id,
+              amount: hackathon.entryFee,
+              status: "SUCCESS",
+              gateway: "RAZORPAY",
+              verifiedAt: new Date(),
+            },
+          });
+          verifiedPaymentRecordId = payment.id;
+        } catch {}
+      }
+    }
+
+    // 7. Fetch student profile to capture department and college
     const studentProfile = await getStudentProfile(session.userId);
 
-    // 7. Generate IDs and codes
+    // 8. Generate IDs and codes
     const teamIdCode = generateTeamId("SC26");
     const joinCode = generateJoinCode();
     const inviteToken = generateInviteToken();
@@ -129,6 +174,44 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const firestoreTeamDocId = `team-${hackathon.id || hackathonId}-${teamIdCode.toLowerCase()}`;
     const minTeamSize = (hackathon as any).minTeamSize || 2;
     const maxTeamSize = (hackathon as any).maxTeamSize || hackathon.maxTeamSize || 4;
+
+    const initialMembers = [
+      {
+        userId: session.userId,
+        name: session.name || "Team Leader",
+        email: session.email || "",
+        role: "LEADER" as const,
+        registrationNo: regNo,
+        joinedAt: new Date().toISOString(),
+        college: studentProfile?.college || null,
+        department: studentProfile?.department || null,
+        paymentStatus: leaderPaymentStatus,
+        paymentId: paymentId || null,
+        orderId: orderId || null,
+        paymentAmount: leaderPaymentStatus === "PAID" ? hackathon.entryFee : 0,
+        paidAt: leaderPaymentStatus === "PAID" ? new Date().toISOString() : null,
+      },
+    ];
+
+    const stats = computeTeamPaymentStatus({
+      id: firestoreTeamDocId,
+      teamId: teamIdCode,
+      hackathonId: hackathon.id || hackathonId,
+      name: String(teamName).trim(),
+      leaderId: session.userId,
+      leaderName: session.name || "Team Leader",
+      leaderEmail: session.email || "",
+      joinCode,
+      inviteToken,
+      members: initialMembers,
+      minTeamSize,
+      maxTeamSize,
+      round: 1,
+      roundStatus: "REGISTERED",
+      status: "ACTIVE",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }, hackathon.entryFee);
 
     const newTeam: HackathonTeam = {
       id: firestoreTeamDocId,
@@ -141,22 +224,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       leaderEmail: session.email || "",
       joinCode,
       inviteToken,
-      members: [
-        {
-          userId: session.userId,
-          name: session.name || "Team Leader",
-          email: session.email || "",
-          role: "LEADER",
-          registrationNo: regNo,
-          joinedAt: new Date().toISOString(),
-          college: studentProfile?.college || null,
-          department: studentProfile?.department || null,
-        },
-      ],
+      members: initialMembers,
       minTeamSize,
       maxTeamSize,
       round: 1,
       roundStatus: "REGISTERED",
+      paymentStatus: stats.paymentStatus,
+      paidMemberCount: stats.paidMemberCount,
+      totalPaidAmount: stats.totalPaidAmount,
       submission: null,
       status: "ACTIVE",
       createdAt: new Date().toISOString(),
@@ -173,11 +248,31 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           hackathonId: hackathon.id || hackathonId,
           userId: session.userId,
           registrationNo: regNo,
+          paymentId: verifiedPaymentRecordId,
           status: "CONFIRMED",
         },
       });
     } catch (prismaErr) {
       console.warn("Prisma registration sync note:", prismaErr);
+    }
+
+    // Process Referral Conversion if paid
+    if (leaderPaymentStatus === "PAID") {
+      try {
+        await processReferralConversion({
+          referredUid: session.userId,
+          eventType: "HACKATHON_REGISTERED",
+          amount: hackathon.entryFee,
+          metadata: {
+            hackathonId: hackathon.id,
+            hackathonTitle: hackathon.title,
+            teamId: newTeam.id,
+            teamName: newTeam.name,
+          },
+        });
+      } catch (refErr) {
+        console.warn("Leader referral conversion notice:", refErr);
+      }
     }
 
     return NextResponse.json({

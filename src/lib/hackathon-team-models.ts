@@ -4,6 +4,14 @@ export type RegistrationMode = "INDIVIDUAL_ONLY" | "TEAM_ONLY" | "BOTH";
 
 export type TeamMemberRole = "LEADER" | "MEMBER";
 
+export type MemberPaymentStatus = "PAID" | "PENDING" | "NOT_REQUIRED";
+
+export type TeamPaymentStatus = 
+  | "PAYMENT_PENDING" 
+  | "PARTIALLY_PAID" 
+  | "FULLY_PAID" 
+  | "NOT_REQUIRED";
+
 export type RoundStatus = 
   | "REGISTERED" 
   | "ROUND_1_QUALIFIED" 
@@ -21,6 +29,11 @@ export interface TeamMemberItem {
   joinedAt: any;
   college?: string | null;
   department?: string | null;
+  paymentStatus?: MemberPaymentStatus;
+  paymentId?: string | null;
+  orderId?: string | null;
+  paymentAmount?: number;
+  paidAt?: string | null;
 }
 
 export interface HackathonTeamSubmission {
@@ -51,6 +64,9 @@ export interface HackathonTeam {
   maxTeamSize: number;
   round: number;
   roundStatus: RoundStatus;
+  paymentStatus?: TeamPaymentStatus;
+  paidMemberCount?: number;
+  totalPaidAmount?: number;
   submission?: HackathonTeamSubmission | null;
   status: "ACTIVE" | "DISBANDED";
   createdAt: any;
@@ -65,10 +81,53 @@ export interface HackathonIndividualRegistration {
   email: string;
   registrationNo: string;
   registeredAt: any;
+  paymentStatus?: MemberPaymentStatus;
+  paymentId?: string | null;
+  paymentAmount?: number;
   status: "CONFIRMED";
   round?: number;
   roundStatus?: RoundStatus;
   submission?: HackathonTeamSubmission | null;
+}
+
+/**
+ * Computes the team payment status based on individual member payments and hackathon entry fee
+ */
+export function computeTeamPaymentStatus(team: HackathonTeam, entryFee: number): {
+  paymentStatus: TeamPaymentStatus;
+  paidMemberCount: number;
+  totalPaidAmount: number;
+  totalRequiredAmount: number;
+} {
+  if (!entryFee || entryFee <= 0) {
+    return {
+      paymentStatus: "NOT_REQUIRED",
+      paidMemberCount: team.members.length,
+      totalPaidAmount: 0,
+      totalRequiredAmount: 0,
+    };
+  }
+
+  const totalMembers = team.members.length;
+  const paidMembers = team.members.filter((m) => m.paymentStatus === "PAID").length;
+  const totalPaidAmount = team.members.reduce((sum, m) => sum + (m.paymentStatus === "PAID" ? (m.paymentAmount || entryFee) : 0), 0);
+  const totalRequiredAmount = totalMembers * entryFee;
+
+  let paymentStatus: TeamPaymentStatus = "PAYMENT_PENDING";
+  if (paidMembers === 0) {
+    paymentStatus = "PAYMENT_PENDING";
+  } else if (paidMembers === totalMembers && totalMembers > 0) {
+    paymentStatus = "FULLY_PAID";
+  } else {
+    paymentStatus = "PARTIALLY_PAID";
+  }
+
+  return {
+    paymentStatus,
+    paidMemberCount: paidMembers,
+    totalPaidAmount,
+    totalRequiredAmount,
+  };
 }
 
 /**

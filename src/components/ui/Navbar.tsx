@@ -48,6 +48,7 @@ export const Navbar = () => {
     { name: "Companies", href: "/companies" },
     { name: "Courses", href: "/courses" },
     { name: "Hackathons", href: "/hackathons" },
+    { name: "Leaderboard", href: "/leaderboard" },
     { name: "Projects", href: "/projects" },
     { name: "Idea Link", href: "/idea-link" },
     { name: "Refer & Earn", href: "/referrals" },

@@ -12,11 +12,16 @@ import {
   Award, 
   Trophy, 
   Briefcase, 
-  CheckCircle2,
-  GraduationCap
+  CheckCircle2, 
+  GraduationCap,
+  Crown,
+  Medal,
+  ShieldCheck,
+  ExternalLink
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/UserAvatar";
+import { getStudentAchievements } from "@/lib/hackathons/results-service";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +69,7 @@ export default async function PublicStudentPortfolioPage({
   }
 
   const skills = JSON.parse(profile.skills || "[]");
+  const verifiedAchievements = await getStudentAchievements(profile.userId);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#0B0F19]">
@@ -121,6 +127,69 @@ export default async function PublicStudentPortfolioPage({
             )}
           </div>
         </div>
+
+        {/* Verified Hackathon Wins & Podium Achievements */}
+        {verifiedAchievements.length > 0 && (
+          <div className="p-6 rounded-3xl bg-gradient-to-b from-[#1E1B4B]/60 to-slate-900 border border-amber-500/30 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-400">
+                <Trophy className="w-5 h-5" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Verified Hackathon Wins ({verifiedAchievements.length})
+                </h3>
+              </div>
+              <Link href="/leaderboard" className="text-xs text-amber-400 hover:underline flex items-center gap-1 font-semibold">
+                <span>View Global Leaderboard</span>
+                <ExternalLink className="w-3 h-3" />
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {verifiedAchievements.map((ach) => (
+                <div
+                  key={ach.id}
+                  className="p-4 rounded-2xl bg-slate-950 border border-slate-800 hover:border-amber-500/40 transition space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      ach.rank === 1
+                        ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                        : ach.rank === 2
+                        ? "bg-slate-500/20 text-slate-300 border-slate-500/30"
+                        : "bg-amber-800/20 text-amber-400 border-amber-800/30"
+                    }`}>
+                      {ach.rankTitle}
+                    </span>
+                    {ach.prizeShare > 0 && (
+                      <span className="text-xs font-mono font-bold text-amber-400">
+                        ₹{ach.prizeShare.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 className="font-bold text-white text-xs">{ach.hackathonTitle}</h4>
+                    <p className="text-[11px] text-slate-400">Team: <strong className="text-slate-200">{ach.teamName}</strong></p>
+                  </div>
+
+                  {ach.certificateId && (
+                    <div className="pt-2 border-t border-slate-850 flex items-center justify-between text-[10px]">
+                      <span className="text-slate-500">Official Award</span>
+                      <Link
+                        href={`/verify/${ach.certificateId}`}
+                        target="_blank"
+                        className="text-amber-400 hover:underline font-mono flex items-center gap-1 font-semibold"
+                      >
+                        <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                        <span>{ach.certificateId}</span>
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Skills */}
         {skills.length > 0 && (
