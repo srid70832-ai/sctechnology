@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
 import { db } from "@/lib/firebase";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { COLLECTIONS } from "@/lib/firestore";
 import { doc, getDoc } from "firebase/firestore";
 import { findUserTeam } from "@/lib/team-storage";
@@ -35,11 +36,23 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     // Check Firestore hackathon for additional fields
     let firestoreHackathon: any = null;
     try {
-      const hSnap = await getDoc(doc(db, COLLECTIONS.HACKATHONS, hackathon?.id || params.id));
-      if (hSnap.exists()) {
-        firestoreHackathon = hSnap.data();
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection("hackathons").doc(hackathon?.id || params.id).get();
+        if (snap.exists) {
+          firestoreHackathon = snap.data();
+        }
       }
     } catch {}
+
+    if (!firestoreHackathon) {
+      try {
+        const hSnap = await getDoc(doc(db, COLLECTIONS.HACKATHONS, hackathon?.id || params.id));
+        if (hSnap.exists()) {
+          firestoreHackathon = hSnap.data();
+        }
+      } catch {}
+    }
 
     if (!hackathon && !firestoreHackathon) {
       return NextResponse.json({ error: "Hackathon not found" }, { status: 404 });

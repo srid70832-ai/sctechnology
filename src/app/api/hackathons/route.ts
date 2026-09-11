@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
+import { db } from "@/lib/firebase";
+import { getAdminDb } from "@/lib/firebase-admin";
+import { getDocs, collection } from "firebase/firestore";
 
 export const dynamic = "force-dynamic";
 
@@ -44,16 +47,60 @@ function parseArraySafe(input: any): any[] {
 
 export async function GET() {
   try {
-    const hackathons = await prisma.hackathon.findMany({
-      include: {
-        _count: {
-          select: { registrations: true, submissions: true },
-        },
-      },
-      orderBy: { startDate: "asc" },
-    });
+    const rawDocsMap = new Map<string, any>();
 
-    const formatted = (hackathons || []).map((h: any) => {
+    // 1. Fetch from Firestore Admin SDK
+    try {
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection("hackathons").get();
+        snap.forEach((docSnap) => {
+          rawDocsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+        });
+      }
+    } catch (adminErr) {
+      console.warn("[HACKATHONS_PUBLIC] Admin Firestore get notice:", adminErr);
+    }
+
+    // 2. Fetch from Firestore Client SDK
+    try {
+      const hSnap = await getDocs(collection(db, "hackathons"));
+      hSnap.forEach((d) => {
+        if (!rawDocsMap.has(d.id)) {
+          rawDocsMap.set(d.id, { id: d.id, ...d.data() });
+        }
+      });
+    } catch (clientErr) {
+      console.warn("[HACKATHONS_PUBLIC] Client Firestore get notice:", clientErr);
+    }
+
+    // 3. Fetch from Prisma Adapter
+    try {
+      const prismaHackathons = await prisma.hackathon.findMany({
+        include: {
+          _count: {
+            select: { registrations: true, submissions: true },
+          },
+        },
+        orderBy: { startDate: "asc" },
+      });
+      (prismaHackathons || []).forEach((p: any) => {
+        if (!rawDocsMap.has(p.id)) {
+          rawDocsMap.set(p.id, p);
+        }
+      });
+    } catch (prismaErr) {
+      console.warn("[HACKATHONS_PUBLIC] Prisma findMany notice:", prismaErr);
+    }
+
+    const allDocs = Array.from(rawDocsMap.values());
+
+    // Filter published or ongoing
+    const publishedDocs = allDocs.filter(
+      (h) => h.status === "PUBLISHED" || h.status === "ONGOING" || !h.status
+    );
+
+    const formatted = publishedDocs.map((h: any) => {
       const parsedRules = parseArraySafe(h.rules);
       const parsedPrizes = parseArraySafe(h.prizes);
       const parsedRounds = parseArraySafe(h.rounds);
@@ -92,6 +139,8 @@ export async function GET() {
         problemReleasedAt: h.problemReleasedAt ? toISOStringSafe(h.problemReleasedAt) : null,
       };
     });
+
+    console.log(`[HACKATHONS_PUBLIC] Returned ${formatted.length} published hackathons.`);
 
     return NextResponse.json({ hackathons: formatted });
   } catch (error: any) {
@@ -136,4 +185,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error?.message || "Failed to create hackathon" }, { status: 500 });
   }
 }
+
 

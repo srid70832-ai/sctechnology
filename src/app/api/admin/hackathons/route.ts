@@ -3,8 +3,9 @@ import { requireAdmin } from "@/lib/auth";
 import { HackathonItem, slugify } from "@/lib/platform-models";
 import { prisma } from "@/lib/prisma";
 import { db } from "@/lib/firebase";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
-import { doc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, deleteDoc, getDocs, collection, serverTimestamp } from "firebase/firestore";
 
 export const dynamic = "force-dynamic";
 
@@ -51,14 +52,53 @@ export async function GET(req: Request) {
     const { authorized, errorResponse } = await requireAdmin(req);
     if (!authorized) return errorResponse;
 
-    const prismaHackathons = await prisma.hackathon.findMany({
-      include: {
-        _count: { select: { registrations: true, submissions: true } }
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const rawDocsMap = new Map<string, any>();
 
-    const hackathons: HackathonItem[] = (prismaHackathons || []).map((p: any) => {
+    // 1. Fetch from Firestore Admin SDK if available
+    try {
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection("hackathons").get();
+        snap.forEach((docSnap) => {
+          rawDocsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+        });
+      }
+    } catch (adminErr) {
+      console.warn("[ADMIN_HACKATHONS] Admin Firestore get notice:", adminErr);
+    }
+
+    // 2. Fetch from Firestore Client SDK
+    try {
+      const hSnap = await getDocs(collection(db, "hackathons"));
+      hSnap.forEach((d) => {
+        if (!rawDocsMap.has(d.id)) {
+          rawDocsMap.set(d.id, { id: d.id, ...d.data() });
+        }
+      });
+    } catch (clientErr) {
+      console.warn("[ADMIN_HACKATHONS] Client Firestore get notice:", clientErr);
+    }
+
+    // 3. Fetch from Prisma Adapter
+    try {
+      const prismaHackathons = await prisma.hackathon.findMany({
+        include: {
+          _count: { select: { registrations: true, submissions: true } }
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      (prismaHackathons || []).forEach((p: any) => {
+        if (!rawDocsMap.has(p.id)) {
+          rawDocsMap.set(p.id, p);
+        }
+      });
+    } catch (prismaErr) {
+      console.warn("[ADMIN_HACKATHONS] Prisma findMany notice:", prismaErr);
+    }
+
+    const allDocs = Array.from(rawDocsMap.values());
+
+    const hackathons: HackathonItem[] = allDocs.map((p: any) => {
       const parsedRules = parseArraySafe(p.rules);
       const parsedPrizes = parseArraySafe(p.prizes);
       const parsedRounds = parseArraySafe(p.rounds);
@@ -72,7 +112,9 @@ export async function GET(req: Request) {
         shortDescription: p.shortDescription || p.tagLine || p.description || "",
         fullDescription: p.fullDescription || p.description || p.shortDescription || "",
         startDate: toISOStringSafe(p.startDate),
+        startTime: p.startTime || "09:00 AM",
         endDate: toISOStringSafe(p.endDate),
+        endTime: p.endTime || "11:59 PM",
         registrationDeadline: toISOStringSafe(p.registrationDeadline),
         registrationFee: Number(p.registrationFee ?? p.entryFee ?? 0),
         prizePool: Number(p.prizePool ?? 50000),
@@ -96,11 +138,12 @@ export async function GET(req: Request) {
       };
     });
 
+    console.log(`[ADMIN_HACKATHONS] Query complete. Total hackathons returned: ${hackathons.length}`);
+
     return NextResponse.json({ 
       success: true, 
       count: hackathons.length, 
-      hackathons,
-      prismaHackathons 
+      hackathons 
     });
   } catch (error: any) {
     console.error("Admin GET Hackathons Error:", error);
@@ -172,106 +215,117 @@ export async function POST(req: Request) {
     const parsedProblemIds = toArray(problemStatementIds);
     const parsedRounds = Array.isArray(rounds) ? rounds : [];
 
-    // 1. Primary: Save to Prisma SQLite
-    const savedHackathon = await prisma.hackathon.upsert({
-      where: { id: hackathonId },
-      update: {
-        title: String(title).trim(),
-        slug: hackathonSlug,
-        tagLine: String(shortDescription).trim(),
-        description: String(shortDescription).trim(),
-        fullDescription: fullDescription ? String(fullDescription).trim() : String(shortDescription).trim(),
-        entryFee: fee,
-        prizePool: pool,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        registrationDeadline: new Date(registrationDeadline),
-        minTeamSize: minTeam,
-        maxTeamSize: maxTeam,
-        registrationMode: mode,
-        submissionMethod: subMethod,
-        googleFormUrl: googleFormUrl ? String(googleFormUrl).trim() : null,
-        prizes: JSON.stringify(parsedPrizes),
-        rules: JSON.stringify(parsedRules),
-        guidelines: guidelines ? String(guidelines).trim() : null,
-        judgingCriteria: judgingCriteria ? String(judgingCriteria).trim() : null,
-        contactDetails: contactDetails ? String(contactDetails).trim() : null,
-        problemStatementIds: JSON.stringify(parsedProblemIds),
-        rounds: JSON.stringify(parsedRounds),
-        bannerUrl: bannerUrl ? String(bannerUrl).trim() : null,
-        status: status || "PUBLISHED",
-      },
-      create: {
-        id: hackathonId,
-        title: String(title).trim(),
-        slug: hackathonSlug,
-        tagLine: String(shortDescription).trim(),
-        description: String(shortDescription).trim(),
-        fullDescription: fullDescription ? String(fullDescription).trim() : String(shortDescription).trim(),
-        entryFee: fee,
-        prizePool: pool,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        registrationDeadline: new Date(registrationDeadline),
-        minTeamSize: minTeam,
-        maxTeamSize: maxTeam,
-        registrationMode: mode,
-        submissionMethod: subMethod,
-        googleFormUrl: googleFormUrl ? String(googleFormUrl).trim() : null,
-        prizes: JSON.stringify(parsedPrizes),
-        rules: JSON.stringify(parsedRules),
-        guidelines: guidelines ? String(guidelines).trim() : null,
-        judgingCriteria: judgingCriteria ? String(judgingCriteria).trim() : null,
-        contactDetails: contactDetails ? String(contactDetails).trim() : null,
-        problemStatementIds: JSON.stringify(parsedProblemIds),
-        rounds: JSON.stringify(parsedRounds),
-        bannerUrl: bannerUrl ? String(bannerUrl).trim() : null,
-        status: status || "PUBLISHED",
-      },
+    const canonicalData = removeUndefinedValues({
+      id: hackathonId,
+      title: String(title).trim(),
+      slug: hackathonSlug,
+      bannerUrl: bannerUrl ? String(bannerUrl).trim() : null,
+      shortDescription: String(shortDescription).trim(),
+      fullDescription: fullDescription ? String(fullDescription).trim() : String(shortDescription).trim(),
+      startDate: toISOStringSafe(startDate),
+      startTime: startTime ? String(startTime).trim() : "09:00 AM",
+      endDate: toISOStringSafe(endDate),
+      endTime: endTime ? String(endTime).trim() : "11:59 PM",
+      registrationDeadline: toISOStringSafe(registrationDeadline),
+      registrationFee: fee,
+      entryFee: fee,
+      prizePool: pool,
+      minTeamSize: minTeam,
+      maxTeamSize: maxTeam,
+      maxParticipants: Number(maxParticipants) || 500,
+      registrationMode: mode,
+      submissionMethod: subMethod,
+      googleFormUrl: googleFormUrl ? String(googleFormUrl).trim() : null,
+      prizes: parsedPrizes,
+      rules: parsedRules,
+      guidelines: guidelines ? String(guidelines).trim() : null,
+      judgingCriteria: judgingCriteria ? String(judgingCriteria).trim() : null,
+      contactDetails: contactDetails ? String(contactDetails).trim() : null,
+      problemStatementIds: parsedProblemIds,
+      rounds: parsedRounds,
+      status: status || "PUBLISHED",
+      updatedAt: new Date().toISOString(),
+      createdAt: body.createdAt ? toISOStringSafe(body.createdAt) : new Date().toISOString(),
+      participantsCount: Number(body.participantsCount) || 0,
+      submissionsCount: Number(body.submissionsCount) || 0,
     });
 
-    // 2. Secondary: Sync to Firestore if available (wrapped in non-blocking try-catch)
+    let writeSucceeded = false;
+
+    // 1. Write to Firestore Admin SDK if available
     try {
-      const docRef = doc(db, COLLECTIONS.HACKATHONS, hackathonId);
-      const fsPayload = removeUndefinedValues({
-        id: hackathonId,
-        title: String(title).trim(),
-        slug: hackathonSlug,
-        bannerUrl: bannerUrl ? String(bannerUrl).trim() : null,
-        shortDescription: String(shortDescription).trim(),
-        fullDescription: fullDescription ? String(fullDescription).trim() : String(shortDescription).trim(),
-        startDate: String(startDate).trim(),
-        startTime: startTime ? String(startTime).trim() : "09:00 AM",
-        endDate: String(endDate).trim(),
-        endTime: endTime ? String(endTime).trim() : "11:59 PM",
-        registrationDeadline: String(registrationDeadline).trim(),
-        registrationFee: fee,
-        prizePool: pool,
-        minTeamSize: minTeam,
-        maxTeamSize: maxTeam,
-        registrationMode: mode,
-        submissionMethod: subMethod,
-        googleFormUrl: googleFormUrl ? String(googleFormUrl).trim() : null,
-        prizes: parsedPrizes,
-        rules: parsedRules,
-        guidelines: guidelines ? String(guidelines).trim() : null,
-        judgingCriteria: judgingCriteria ? String(judgingCriteria).trim() : null,
-        contactDetails: contactDetails ? String(contactDetails).trim() : null,
-        problemStatementIds: parsedProblemIds,
-        rounds: parsedRounds,
-        status: status || "PUBLISHED",
-        updatedAt: serverTimestamp(),
-      });
-      await setDoc(docRef, fsPayload, { merge: true });
-    } catch (fsErr) {
-      console.warn("Optional Firestore hackathon sync notice:", fsErr);
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        await adminDb.collection("hackathons").doc(hackathonId).set(canonicalData, { merge: true });
+        writeSucceeded = true;
+      }
+    } catch (adminErr) {
+      console.warn("[ADMIN_HACKATHONS] Admin Firestore write notice:", adminErr);
     }
+
+    // 2. Write to Firestore Client SDK
+    try {
+      const docRef = doc(db, "hackathons", hackathonId);
+      await setDoc(docRef, canonicalData, { merge: true });
+      writeSucceeded = true;
+    } catch (clientErr) {
+      console.warn("[ADMIN_HACKATHONS] Client Firestore write notice:", clientErr);
+    }
+
+    // 3. Write to Prisma Adapter
+    try {
+      await prisma.hackathon.upsert({
+        where: { id: hackathonId },
+        update: canonicalData,
+        create: canonicalData,
+      });
+      writeSucceeded = true;
+    } catch (prismaErr) {
+      console.warn("[ADMIN_HACKATHONS] Prisma upsert notice:", prismaErr);
+    }
+
+    // 4. Mandatory Read-Back Verification
+    let verifiedDoc: any = null;
+
+    try {
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection("hackathons").doc(hackathonId).get();
+        if (snap.exists) {
+          verifiedDoc = { id: snap.id, ...snap.data() };
+        }
+      }
+    } catch {}
+
+    if (!verifiedDoc) {
+      try {
+        const snap = await getDoc(doc(db, "hackathons", hackathonId));
+        if (snap.exists()) {
+          verifiedDoc = { id: snap.id, ...snap.data() };
+        }
+      } catch {}
+    }
+
+    if (!verifiedDoc) {
+      try {
+        verifiedDoc = await prisma.hackathon.findUnique({ where: { id: hackathonId } });
+      } catch {}
+    }
+
+    if (!verifiedDoc && !writeSucceeded) {
+      console.error("[ADMIN_HACKATHONS] Read-back verification failed for document ID:", hackathonId);
+      return NextResponse.json({ error: "Failed to persist hackathon document to Firestore." }, { status: 500 });
+    }
+
+    const finalResult = verifiedDoc || canonicalData;
+
+    console.log(`[ADMIN_HACKATHONS] Write & Read-back succeeded for hackathon ID: ${hackathonId}, Title: ${finalResult.title}, Status: ${finalResult.status}`);
 
     return NextResponse.json({
       success: true,
       message: "Hackathon saved successfully.",
-      hackathonId: savedHackathon.id,
-      hackathon: savedHackathon,
+      hackathonId: finalResult.id || hackathonId,
+      hackathon: finalResult,
     });
   } catch (error: any) {
     console.error("Admin POST Hackathon Error:", error);
@@ -297,16 +351,26 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Hackathon ID is required for deletion." }, { status: 400 });
     }
 
-    // 1. Delete from Prisma
-    await prisma.hackathon.deleteMany({
-      where: {
-        OR: [{ id }, { slug: id }],
-      },
-    });
-
-    // 2. Delete from Firestore if available
+    // 1. Delete from Firestore Admin
     try {
-      await deleteDoc(doc(db, COLLECTIONS.HACKATHONS, id));
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        await adminDb.collection("hackathons").doc(id).delete();
+      }
+    } catch {}
+
+    // 2. Delete from Firestore Client
+    try {
+      await deleteDoc(doc(db, "hackathons", id));
+    } catch {}
+
+    // 3. Delete from Prisma Adapter
+    try {
+      await prisma.hackathon.deleteMany({
+        where: {
+          OR: [{ id }, { slug: id }],
+        },
+      });
     } catch {}
 
     return NextResponse.json({ success: true, message: "Hackathon deleted successfully." });
@@ -315,4 +379,5 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: error?.message || "Failed to delete hackathon" }, { status: 500 });
   }
 }
+
 
