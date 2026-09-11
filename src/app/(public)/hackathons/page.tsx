@@ -31,8 +31,8 @@ export default function HackathonsListPage() {
   const loadHackathons = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Internal Hackathons from Hackathons API
-      const res = await fetch("/api/admin/hackathons");
+      // 1. Fetch Internal Hackathons from Public Hackathons API
+      const res = await fetch("/api/hackathons");
       if (res.ok) {
         const data = await res.json();
         const published = (data.hackathons || []).filter(

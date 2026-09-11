@@ -8,6 +8,44 @@ import { doc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 
 export const dynamic = "force-dynamic";
 
+function toISOStringSafe(val: any): string {
+  if (!val) return new Date().toISOString();
+  if (typeof val === "string") {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? val : d.toISOString();
+  }
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? new Date().toISOString() : val.toISOString();
+  }
+  if (typeof val?.toDate === "function") {
+    return val.toDate().toISOString();
+  }
+  if (typeof val?.seconds === "number") {
+    return new Date(val.seconds * 1000).toISOString();
+  }
+  try {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? String(val) : d.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
+function parseArraySafe(input: any): any[] {
+  if (Array.isArray(input)) return input;
+  if (!input) return [];
+  if (typeof input === "string") {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) return parsed;
+      return [input];
+    } catch {
+      return input.split("\n").map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  return [];
+}
+
 export async function GET(req: Request) {
   try {
     const { authorized, errorResponse } = await requireAdmin(req);
@@ -20,49 +58,25 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
     });
 
-    const hackathons: HackathonItem[] = prismaHackathons.map((p: any) => {
-      let parsedRules: string[] = [];
-      let parsedPrizes: string[] = [];
-      let parsedRounds: any[] = [];
-      let parsedProblemStatementIds: string[] = [];
-
-      try {
-        parsedRules = p.rules ? JSON.parse(p.rules) : [];
-      } catch {
-        parsedRules = p.rules ? [p.rules] : [];
-      }
-
-      try {
-        parsedPrizes = p.prizes ? JSON.parse(p.prizes) : [];
-      } catch {
-        parsedPrizes = p.prizes ? [p.prizes] : [];
-      }
-
-      try {
-        parsedRounds = p.rounds ? JSON.parse(p.rounds) : [];
-      } catch {
-        parsedRounds = [];
-      }
-
-      try {
-        parsedProblemStatementIds = p.problemStatementIds ? JSON.parse(p.problemStatementIds) : [];
-      } catch {
-        parsedProblemStatementIds = [];
-      }
+    const hackathons: HackathonItem[] = (prismaHackathons || []).map((p: any) => {
+      const parsedRules = parseArraySafe(p.rules);
+      const parsedPrizes = parseArraySafe(p.prizes);
+      const parsedRounds = parseArraySafe(p.rounds);
+      const parsedProblemStatementIds = parseArraySafe(p.problemStatementIds);
 
       return {
         id: p.id,
-        title: p.title,
-        slug: p.slug,
+        title: p.title || "Untitled Hackathon",
+        slug: p.slug || p.id,
         bannerUrl: p.bannerUrl || null,
-        shortDescription: p.tagLine || p.description,
-        fullDescription: p.fullDescription || p.description,
-        startDate: p.startDate.toISOString(),
-        endDate: p.endDate.toISOString(),
-        registrationDeadline: p.registrationDeadline.toISOString(),
-        registrationFee: p.entryFee,
-        entryFee: p.entryFee,
-        prizePool: p.prizePool,
+        shortDescription: p.shortDescription || p.tagLine || p.description || "",
+        fullDescription: p.fullDescription || p.description || p.shortDescription || "",
+        startDate: toISOStringSafe(p.startDate),
+        endDate: toISOStringSafe(p.endDate),
+        registrationDeadline: toISOStringSafe(p.registrationDeadline),
+        registrationFee: Number(p.registrationFee ?? p.entryFee ?? 0),
+        entryFee: Number(p.registrationFee ?? p.entryFee ?? 0),
+        prizePool: Number(p.prizePool ?? 50000),
         prizes: parsedPrizes,
         rules: parsedRules,
         guidelines: p.guidelines || null,
@@ -72,14 +86,14 @@ export async function GET(req: Request) {
         googleFormUrl: p.googleFormUrl || null,
         problemStatementIds: parsedProblemStatementIds,
         rounds: parsedRounds,
-        minTeamSize: p.minTeamSize || 1,
-        maxTeamSize: p.maxTeamSize || 4,
-        maxParticipants: 500,
+        minTeamSize: Number(p.minTeamSize) || 1,
+        maxTeamSize: Number(p.maxTeamSize) || 4,
+        maxParticipants: Number(p.maxParticipants) || 500,
         registrationMode: (p.registrationMode as any) || "BOTH",
         status: (p.status as any) || "PUBLISHED",
-        createdAt: p.createdAt.toISOString(),
-        participantsCount: p._count?.registrations || 0,
-        submissionsCount: p._count?.submissions || 0,
+        createdAt: toISOStringSafe(p.createdAt),
+        participantsCount: p._count?.registrations || p.participantsCount || 0,
+        submissionsCount: p._count?.submissions || p.submissionsCount || 0,
       };
     });
 

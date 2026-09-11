@@ -110,17 +110,26 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       }
     }
 
-    const rules = Array.isArray(firestoreHackathon?.rules)
-      ? firestoreHackathon.rules
-      : JSON.parse(hackathon?.rules || "[]");
+    const parseArraySafe = (input: any): any[] => {
+      if (Array.isArray(input)) return input;
+      if (!input) return [];
+      if (typeof input === "string") {
+        try {
+          const parsed = JSON.parse(input);
+          if (Array.isArray(parsed)) return parsed;
+          return [input];
+        } catch {
+          return input.split("\n").map((s) => s.trim()).filter(Boolean);
+        }
+      }
+      return [];
+    };
 
+    const rules = parseArraySafe(firestoreHackathon?.rules || hackathon?.rules);
     const judgingCriteria = Array.isArray(firestoreHackathon?.judgingCriteria)
       ? firestoreHackathon.judgingCriteria
-      : JSON.parse(hackathon?.judgingCriteria || "[]");
-
-    const faqs = Array.isArray(firestoreHackathon?.faqs)
-      ? firestoreHackathon.faqs
-      : JSON.parse(hackathon?.faqs || "[]");
+      : (firestoreHackathon?.judgingCriteria || hackathon?.judgingCriteria || "");
+    const faqs = parseArraySafe(firestoreHackathon?.faqs || hackathon?.faqs);
 
     return NextResponse.json({
       hackathon: {
