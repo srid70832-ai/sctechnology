@@ -399,23 +399,28 @@ export default function AdminProjectsPage() {
                   </div>
 
                   {/* Tech stack */}
-                  {p.technologyStack && p.technologyStack.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {p.technologyStack.slice(0, 4).map((tech, idx) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-0.5 rounded-lg bg-slate-950 text-[10px] font-semibold text-slate-300 border border-slate-800"
-                        >
-                          {tech}
-                        </span>
-                      ))}
-                      {p.technologyStack.length > 4 && (
-                        <span className="text-[10px] text-slate-500 self-center">
-                          +{p.technologyStack.length - 4}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                  {(() => {
+                    const rawTech = (p.technologyStack || (p as any).techStack) as any;
+                    const techArr: string[] = Array.isArray(rawTech) ? rawTech : typeof rawTech === "string" ? (() => { try { return JSON.parse(rawTech); } catch { return String(rawTech).split(",").map((s: string) => s.trim()).filter(Boolean); } })() : [];
+                    if (techArr.length === 0) return null;
+                    return (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {techArr.slice(0, 4).map((tech: string, idx: number) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 rounded-lg bg-slate-950 text-[10px] font-semibold text-slate-300 border border-slate-800"
+                          >
+                            {tech}
+                          </span>
+                        ))}
+                        {techArr.length > 4 && (
+                          <span className="text-[10px] text-slate-500 self-center">
+                            +{techArr.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Deadline & Submission Method */}
                   <div className="flex items-center justify-between text-[11px] pt-1 text-slate-400">

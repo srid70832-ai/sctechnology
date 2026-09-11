@@ -480,7 +480,7 @@ export default function AdminPlansPage() {
                 <div className="pt-2 border-t border-slate-800 space-y-1.5">
                   <span className="text-[11px] font-semibold text-slate-400">Key Features:</span>
                   <ul className="text-[11px] text-slate-300 space-y-1">
-                    {plan.features?.slice(0, 4).map((f, idx) => (
+                    {(Array.isArray(plan.features) ? plan.features : typeof plan.features === "string" ? (() => { try { return JSON.parse(plan.features); } catch { return [plan.features]; } })() : []).slice(0, 4).map((f: string, idx: number) => (
                       <li key={idx} className="flex items-center gap-1.5">
                         <CheckCircle2 className="w-3 h-3 text-blue-400 shrink-0" />
                         <span className="truncate">{f}</span>

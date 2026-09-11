@@ -108,7 +108,7 @@ export default function PaymentsPage() {
                   {payments.map((p) => (
                     <tr key={p.id} className="hover:bg-slate-800/40 transition">
                       <td className="py-4 font-mono text-[11px] text-blue-400 font-bold">
-                        <div>{p.receiptNumber || `SCT-2026-${p.id.slice(0, 6)}`}</div>
+                        <div>{p.receiptNumber || `SCT-2026-${(p.id || "PAY").slice(0, 6)}`}</div>
                         <div className="text-[10px] text-slate-500 font-normal">{p.orderId || p.razorpayOrderId}</div>
                       </td>
                       <td className="py-4">

@@ -190,18 +190,22 @@ export default function PublicCoursesPage() {
                     </div>
 
                     {/* Skills tags */}
-                    {c.skills && c.skills.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {c.skills.slice(0, 4).map((sk: string, idx: number) => (
-                          <span
-                            key={idx}
-                            className="px-2 py-0.5 rounded-lg bg-slate-950 text-[10px] font-semibold text-slate-300 border border-slate-800"
-                          >
-                            {sk}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    {(() => {
+                      const courseSkills: string[] = Array.isArray(c.skills) ? c.skills : typeof c.skills === "string" ? (() => { try { return JSON.parse(c.skills); } catch { return [c.skills]; } })() : [];
+                      if (courseSkills.length === 0) return null;
+                      return (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {courseSkills.slice(0, 4).map((sk: string, idx: number) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded-lg bg-slate-950 text-[10px] font-semibold text-slate-300 border border-slate-800"
+                            >
+                              {sk}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
 
                     {/* Meta stats */}
                     <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/80">

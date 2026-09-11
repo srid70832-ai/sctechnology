@@ -253,18 +253,22 @@ export default function HackathonsListPage() {
                   </p>
 
                   {/* Skills Pill list */}
-                  {item.skills && item.skills.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-5">
-                      {item.skills.slice(0, 3).map((s: string, idx: number) => (
-                        <span
-                          key={idx}
-                          className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700/50"
-                        >
-                          {s}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  {(() => {
+                    const hackSkills: string[] = Array.isArray(item.skills) ? item.skills : typeof item.skills === "string" ? (() => { try { return JSON.parse(item.skills); } catch { return [item.skills]; } })() : [];
+                    if (hackSkills.length === 0) return null;
+                    return (
+                      <div className="flex flex-wrap gap-1.5 mb-5">
+                        {hackSkills.slice(0, 3).map((s: string, idx: number) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700/50"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Details Footer */}

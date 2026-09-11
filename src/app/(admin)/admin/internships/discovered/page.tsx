@@ -224,7 +224,7 @@ export default function AdminDiscoveredReviewPage() {
 
                 {/* Skills tags */}
                 <div className="flex flex-wrap gap-1.5">
-                  {item.skills?.slice(0, 5).map((sk, idx) => (
+                  {(Array.isArray(item.skills) ? item.skills : typeof item.skills === "string" ? (() => { try { return JSON.parse(item.skills); } catch { return [item.skills]; } })() : []).slice(0, 5).map((sk: string, idx: number) => (
                     <span key={idx} className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[10px] font-semibold text-slate-300">
                       {sk}
                     </span>

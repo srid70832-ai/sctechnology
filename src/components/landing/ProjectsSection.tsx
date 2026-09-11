@@ -10,16 +10,24 @@ interface ProjectsSectionProps {
   initialProjects: ProjectItem[];
 }
 
-export const ProjectsSection: React.FC<ProjectsSectionProps> = ({ initialProjects }) => {
+export const ProjectsSection: React.FC<ProjectsSectionProps> = ({ initialProjects = [] }) => {
   const [filter, setFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  const filtered = initialProjects.filter((p) => {
-    const matchesFilter = filter === "All" || p.difficulty.toLowerCase() === filter.toLowerCase();
+  const safeProjects = Array.isArray(initialProjects) ? initialProjects : [];
+
+  const filtered = safeProjects.filter((p) => {
+    const pDiff = (p?.difficulty || "Intermediate").toLowerCase();
+    const matchesFilter = filter === "All" || pDiff === filter.toLowerCase();
+    
+    const pTitle = (p?.title || "").toLowerCase();
+    const pTech = Array.isArray(p?.techStack) ? p.techStack : Array.isArray((p as any)?.technologyStack) ? (p as any).technologyStack : [];
+    
     const matchesSearch =
       searchQuery === "" ||
-      p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.techStack.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+      pTitle.includes(searchQuery.toLowerCase()) ||
+      pTech.some((t: string) => String(t || "").toLowerCase().includes(searchQuery.toLowerCase()));
+      
     return matchesFilter && matchesSearch;
   });
 
@@ -79,50 +87,52 @@ export const ProjectsSection: React.FC<ProjectsSectionProps> = ({ initialProject
         {/* Projects Grid with AnimatePresence */}
         <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           <AnimatePresence>
-            {filtered.slice(0, 4).map((p) => (
-              <motion.div
-                layout
-                key={p.id}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3 }}
-                whileHover={{ y: -6 }}
-                className="p-5 rounded-2xl bg-[#0C162E]/80 border border-slate-800 hover:border-blue-500/50 transition-all flex flex-col justify-between group shadow-lg hover:shadow-blue-500/10 hover:shadow-2xl"
-              >
-                <div>
-                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mb-3 group-hover:scale-110 group-hover:rotate-6 transition-transform">
-                    <FolderGit2 className="w-5 h-5" />
-                  </div>
-                  <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition line-clamp-1 mb-1.5">
-                    {p.title}
-                  </h3>
-                  <p className="text-xs text-slate-400 line-clamp-2 mb-3">
-                    {p.shortDesc}
-                  </p>
+            {filtered.slice(0, 4).map((p) => {
+              const pTech = Array.isArray(p?.techStack) ? p.techStack : Array.isArray((p as any)?.technologyStack) ? (p as any).technologyStack : [];
+              return (
+                <motion.div
+                  layout
+                  key={p.id}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.3 }}
+                  whileHover={{ y: -6 }}
+                  className="p-5 rounded-2xl bg-[#0C162E]/80 border border-slate-800 hover:border-blue-500/50 transition-all flex flex-col justify-between group shadow-lg hover:shadow-blue-500/10 hover:shadow-2xl"
+                >
+                  <div>
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mb-3 group-hover:scale-110 group-hover:rotate-6 transition-transform">
+                      <FolderGit2 className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition line-clamp-1 mb-1.5">
+                      {p.title || "Industry Project"}
+                    </h3>
+                    <p className="text-xs text-slate-400 line-clamp-2 mb-3">
+                      {p.shortDesc || "Production code repository with documentation."}
+                    </p>
 
-                  {/* Tech tags */}
-                  <div className="flex flex-wrap gap-1.5 mb-4">
-                    {p.techStack.slice(0, 3).map((tech, i) => (
-                      <span
-                        key={i}
-                        className="px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 font-medium"
-                      >
-                        {tech}
-                      </span>
-                    ))}
-                    {p.techStack.length > 3 && (
-                      <span className="px-1.5 py-0.5 rounded bg-slate-800/50 text-[10px] text-slate-400 font-medium">
-                        +{p.techStack.length - 3}
-                      </span>
-                    )}
+                    {/* Tech tags */}
+                    <div className="flex flex-wrap gap-1.5 mb-4">
+                      {pTech.slice(0, 3).map((tech: string, i: number) => (
+                        <span
+                          key={i}
+                          className="px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 font-medium"
+                        >
+                          {tech}
+                        </span>
+                      ))}
+                      {pTech.length > 3 && (
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800/50 text-[10px] text-slate-400 font-medium">
+                          +{pTech.length - 3}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                    p.difficulty === "Beginner"
-                      ? "bg-emerald-500/15 text-emerald-400"
+                  <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                      p.difficulty === "Beginner"
+                        ? "bg-emerald-500/15 text-emerald-400"
                       : p.difficulty === "Intermediate"
                       ? "bg-blue-500/15 text-blue-400"
                       : "bg-purple-500/15 text-purple-400"
@@ -138,9 +148,10 @@ export const ProjectsSection: React.FC<ProjectsSectionProps> = ({ initialProject
                     <span>View</span>
                     <ExternalLink className="w-3 h-3" />
                   </Link>
-                </div>
-              </motion.div>
-            ))}
+                  </div>
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         </motion.div>
 

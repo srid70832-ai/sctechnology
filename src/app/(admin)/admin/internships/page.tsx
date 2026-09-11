@@ -317,7 +317,7 @@ export default function AdminInternshipsDiscoveryPage() {
                           {item.company} • {item.location}
                         </div>
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {item.skills?.slice(0, 3).map((s, idx) => (
+                          {(Array.isArray(item.skills) ? item.skills : typeof item.skills === "string" ? (() => { try { return JSON.parse(item.skills); } catch { return [item.skills]; } })() : []).slice(0, 3).map((s: string, idx: number) => (
                             <span
                               key={idx}
                               className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400"

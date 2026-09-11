@@ -285,7 +285,7 @@ export default function AdminHackathonResultsPage({ params }: { params: { id: st
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {winners.slice(0, 3).map((w, index) => {
+          {(Array.isArray(winners) ? winners : []).slice(0, 3).map((w, index) => {
             const isFirst = w.rank === 1;
             const isSecond = w.rank === 2;
             const isThird = w.rank === 3;

@@ -131,7 +131,7 @@ export default function HackathonResultsPage({ params }: { params: { id: string 
         </div>
 
         {/* Results Section */}
-        {hasResults && results?.winners ? (
+        {hasResults && Array.isArray(results?.winners) && results.winners.length > 0 ? (
           <div className="space-y-8">
             {/* Winners Podium Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

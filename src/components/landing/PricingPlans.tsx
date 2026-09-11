@@ -242,7 +242,7 @@ export const PricingPlans: React.FC<PricingPlansProps> = ({ plans }) => {
 
                   {/* Features List */}
                   <ul className="space-y-3 text-xs text-slate-300 mb-8">
-                    {plan.features.map((feature, i) => (
+                    {(Array.isArray(plan.features) ? plan.features : typeof plan.features === "string" ? (() => { try { return JSON.parse(plan.features); } catch { return []; } })() : []).map((feature: string, i: number) => (
                       <li key={i} className="flex items-start gap-2.5">
                         <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
                           <Check className="w-2.5 h-2.5 stroke-[3]" />

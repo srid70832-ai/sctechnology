@@ -303,21 +303,28 @@ export default function ProjectsListPage() {
                     </div>
 
                     {/* Tech Stack Pills */}
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {p.technologyStack?.slice(0, 3).map((tech, tIdx) => (
-                        <span
-                          key={tIdx}
-                          className="px-2 py-0.5 rounded-md bg-slate-950 text-[10px] text-slate-300 border border-slate-800 font-mono"
-                        >
-                          {tech}
-                        </span>
-                      ))}
-                      {p.technologyStack && p.technologyStack.length > 3 && (
-                        <span className="text-[10px] text-slate-500 self-center">
-                          +{p.technologyStack.length - 3}
-                        </span>
-                      )}
-                    </div>
+                    {(() => {
+                      const rawTech = (p.technologyStack || (p as any).techStack) as any;
+                      const techArr: string[] = Array.isArray(rawTech) ? rawTech : typeof rawTech === "string" ? (() => { try { return JSON.parse(rawTech); } catch { return String(rawTech).split(",").map((s: string) => s.trim()).filter(Boolean); } })() : [];
+                      if (techArr.length === 0) return null;
+                      return (
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          {techArr.slice(0, 3).map((tech, tIdx) => (
+                            <span
+                              key={tIdx}
+                              className="px-2 py-0.5 rounded-md bg-slate-950 text-[10px] text-slate-300 border border-slate-800 font-mono"
+                            >
+                              {tech}
+                            </span>
+                          ))}
+                          {techArr.length > 3 && (
+                            <span className="text-[10px] text-slate-500 self-center">
+                              +{techArr.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Card Footer: 8 Tasks | Duration | Arrow Link */}

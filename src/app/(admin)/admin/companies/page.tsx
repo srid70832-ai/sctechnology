@@ -342,23 +342,27 @@ export default function AdminCompaniesPage() {
                 </p>
 
                 {/* Skills tags */}
-                {c.requiredSkills && c.requiredSkills.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {c.requiredSkills.slice(0, 4).map((sk, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-0.5 rounded-lg bg-slate-950 text-[10px] font-semibold text-slate-300 border border-slate-800"
-                      >
-                        {sk}
-                      </span>
-                    ))}
-                    {c.requiredSkills.length > 4 && (
-                      <span className="text-[10px] text-slate-500 self-center">
-                        +{c.requiredSkills.length - 4} more
-                      </span>
-                    )}
-                  </div>
-                )}
+                {(() => {
+                  const skillsArr: string[] = Array.isArray(c.requiredSkills) ? c.requiredSkills : typeof c.requiredSkills === "string" ? (() => { try { return JSON.parse(c.requiredSkills); } catch { return [c.requiredSkills]; } })() : [];
+                  if (skillsArr.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {skillsArr.slice(0, 4).map((sk: string, idx: number) => (
+                        <span
+                          key={idx}
+                          className="px-2 py-0.5 rounded-lg bg-slate-950 text-[10px] font-semibold text-slate-300 border border-slate-800"
+                        >
+                          {sk}
+                        </span>
+                      ))}
+                      {skillsArr.length > 4 && (
+                        <span className="text-[10px] text-slate-500 self-center">
+                          +{skillsArr.length - 4} more
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* HR Details if provided */}
                 {(c.hrName || c.hrEmail) && (
