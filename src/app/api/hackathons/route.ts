@@ -15,7 +15,7 @@ export async function GET() {
       orderBy: { startDate: "asc" },
     });
 
-    const formatted = hackathons.map((h) => ({
+    const formatted = hackathons.map((h: any) => ({
       id: h.id,
       title: h.title,
       slug: h.slug,

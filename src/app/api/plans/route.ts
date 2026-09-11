@@ -10,7 +10,7 @@ export async function GET() {
       orderBy: { price: "asc" },
     });
 
-    const formatted = plans.map((p) => ({
+    const formatted = plans.map((p: any) => ({
       id: p.id,
       name: p.name,
       code: p.code,

@@ -22,7 +22,7 @@ export async function GET(req: Request) {
         orderBy: { createdAt: "desc" },
       });
 
-      pCompanies.forEach((p) => {
+      pCompanies.forEach((p: any) => {
         companies.push({
           id: p.id,
           name: p.name,

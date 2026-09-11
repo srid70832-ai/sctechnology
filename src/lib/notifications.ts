@@ -1,7 +1,6 @@
 import { db } from "@/lib/firebase";
 import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { prisma } from "@/lib/prisma";
 
 export type NotificationType = 
   | "INFO" 
@@ -25,7 +24,7 @@ export interface SendNotificationParams {
 }
 
 /**
- * Sends an in-app notification and syncs to both Firestore and Prisma.
+ * Sends an in-app notification in Firestore.
  * Also invokes email notification dispatcher if email is present.
  */
 export async function sendNotification({
@@ -38,24 +37,7 @@ export async function sendNotification({
 }: SendNotificationParams): Promise<boolean> {
   let created = false;
 
-  // 1. Prisma Notification
-  try {
-    await prisma.notification.create({
-      data: {
-        userId,
-        title,
-        message,
-        type: type as any,
-        link,
-        isRead: false,
-      },
-    });
-    created = true;
-  } catch (pErr) {
-    console.warn("Notice: Prisma notification create:", pErr);
-  }
-
-  // 2. Firestore Notification (for real-time listeners)
+  // 1. Firestore Notification (for real-time listeners and in-app dashboard)
   try {
     const notifRef = collection(db, COLLECTIONS.NOTIFICATIONS);
     await addDoc(

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { hashPassword, signToken, AUTH_COOKIE_NAME } from "@/lib/auth";
 import { attributeSignup } from "@/lib/referrals/service";
+import { saveFirestoreDoc, getFirestoreDoc, queryFirestoreDocs, COLLECTIONS, saveStudentProfile } from "@/lib/firestore";
+import { where } from "firebase/firestore";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
@@ -15,52 +18,56 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 6 characters long" }, { status: 400 });
     }
 
-    const existing = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-    });
+    const cleanEmail = email.toLowerCase().trim();
+    const existingUsers = await queryFirestoreDocs(COLLECTIONS.USERS, where("email", "==", cleanEmail));
 
-    if (existing) {
+    if (existingUsers.length > 0) {
       return NextResponse.json({ error: "An account with this email already exists" }, { status: 409 });
     }
 
     const passwordHash = await hashPassword(password);
     const assignedRole = ["STUDENT", "COMPANY"].includes(role) ? role : "STUDENT";
+    const userId = "user_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+    const username = cleanEmail.split("@")[0].replace(/[^a-zA-Z0-9]/g, "") + Math.floor(100 + Math.random() * 900);
 
-    const username = email.split("@")[0].replace(/[^a-zA-Z0-9]/g, "") + Math.floor(100 + Math.random() * 900);
-
-    const newUser = await prisma.user.create({
-      data: {
-        name,
-        email: email.toLowerCase().trim(),
-        passwordHash,
-        role: assignedRole,
-        isVerified: true,
-        studentProfile: assignedRole === "STUDENT" ? {
-          create: {
-            username,
-            college: college || "",
-            department: department || "",
-            profileScore: 40,
-          },
-        } : undefined,
-      },
+    await saveFirestoreDoc(COLLECTIONS.USERS, userId, {
+      id: userId,
+      uid: userId,
+      name,
+      email: cleanEmail,
+      passwordHash,
+      role: assignedRole,
+      isVerified: true,
+      createdAt: new Date().toISOString(),
     });
+
+    if (assignedRole === "STUDENT") {
+      await saveStudentProfile(userId, {
+        uid: userId,
+        fullName: name,
+        email: cleanEmail,
+        displayName: name,
+        college: college || "",
+        department: department || "",
+        onboardingCompleted: false,
+        profileCompleted: false,
+      });
+    }
 
     const token = signToken({
-      userId: newUser.id,
-      email: newUser.email,
-      role: newUser.role as any,
-      name: newUser.name,
+      userId,
+      email: cleanEmail,
+      role: assignedRole as any,
+      name,
     });
 
-    // Create a welcome notification
-        // Attribute referral if code provided
+    // Attribute referral if code provided
     if (referralCode) {
       try {
         await attributeSignup({
-          newUserId: newUser.id,
-          newUserName: newUser.name,
-          newUserEmail: newUser.email,
+          newUserId: userId,
+          newUserName: name,
+          newUserEmail: cleanEmail,
           referralCode,
           source: "WEBSITE",
         });
@@ -69,23 +76,13 @@ export async function POST(req: Request) {
       }
     }
 
-    await prisma.notification.create({
-      data: {
-        userId: newUser.id,
-        title: "Welcome to SC TECH! 🚀",
-        message: "Your account has been created. Start exploring internships, hackathons, and real-world projects today.",
-        type: "INFO",
-        link: "/dashboard",
-      },
-    });
-
     const response = NextResponse.json({
       success: true,
       user: {
-        id: newUser.id,
-        email: newUser.email,
-        name: newUser.name,
-        role: newUser.role,
+        id: userId,
+        email: cleanEmail,
+        name,
+        role: assignedRole,
       },
     });
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getStudentProfile } from "@/lib/firestore";
 
 export const dynamic = "force-dynamic";
 
@@ -11,30 +11,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ user: null }, { status: 200 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: session.userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        avatarUrl: true,
-        studentProfile: true,
-        subscriptions: {
-          where: { status: "ACTIVE" },
-          include: { plan: true },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
-      },
-    });
+    const studentProfile = await getStudentProfile(session.userId);
 
     return NextResponse.json({
       user: {
         ...session,
-        avatarUrl: user?.avatarUrl,
-        studentProfile: user?.studentProfile,
-        activeSubscription: user?.subscriptions?.[0] || null,
+        avatarUrl: studentProfile?.photoURL || null,
+        studentProfile,
+        activeSubscription: null,
       },
     });
   } catch (error) {

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { signJWT } from "@/lib/auth";
 import { verifyFirebaseToken } from "@/lib/firebase-admin";
 
@@ -69,87 +68,9 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Database Sync with Prisma (fail-safe)
-    let dbUser: any = null;
-    let isFirstTime = false;
-    let profileIncomplete = false;
-
-    try {
-      dbUser = await prisma.user.findFirst({
-        where: {
-          OR: [
-            ...(verifiedUid ? [{ firebaseUid: verifiedUid }] : []),
-            ...(cleanEmail ? [{ email: cleanEmail }] : []),
-          ],
-        },
-        include: {
-          studentProfile: true,
-          subscriptions: {
-            where: { status: "ACTIVE" },
-            take: 1,
-          },
-        },
-      });
-
-      if (!dbUser && cleanEmail) {
-        isFirstTime = true;
-        const usernameBase = cleanEmail.split("@")[0].replace(/[^a-zA-Z0-9]/g, "") || "user";
-        const uniqueUsername = `${usernameBase}_${Math.floor(100 + Math.random() * 900)}`;
-
-        dbUser = await prisma.user.create({
-          data: {
-            firebaseUid: verifiedUid,
-            email: cleanEmail,
-            name: verifiedName,
-            avatarUrl: verifiedPhoto,
-            role: targetRole,
-            isVerified: true,
-            status: "ACTIVE",
-            studentProfile: {
-              create: {
-                username: uniqueUsername,
-                isPublic: true,
-              },
-            },
-          },
-          include: {
-            studentProfile: true,
-            subscriptions: true,
-          },
-        });
-      } else if (dbUser) {
-        const finalRole = (targetRole === "ADMIN" || targetRole === "SUPER_ADMIN")
-          ? targetRole
-          : (dbUser.role === "ADMIN" || dbUser.role === "SUPER_ADMIN" ? dbUser.role : targetRole);
-
-        targetRole = finalRole as any;
-
-        dbUser = await prisma.user.update({
-          where: { id: dbUser.id },
-          data: {
-            firebaseUid: verifiedUid || dbUser.firebaseUid,
-            avatarUrl: verifiedPhoto || dbUser.avatarUrl,
-            name: dbUser.name || verifiedName,
-            role: finalRole,
-          },
-          include: {
-            studentProfile: true,
-            subscriptions: {
-              where: { status: "ACTIVE" },
-              take: 1,
-            },
-          },
-        });
-      }
-
-      profileIncomplete = targetRole === "STUDENT" && (!dbUser?.studentProfile?.college || !dbUser?.studentProfile?.mobile);
-    } catch (dbErr: any) {
-      console.warn("[AUTH] Prisma sync non-blocking notice:", dbErr?.message || dbErr);
-    }
-
-    // 4. Create application JWT session cookie
-    const sessionUserId = dbUser?.id || verifiedUid;
-    const sessionUserName = dbUser?.name || verifiedName;
+    // 3. Create application JWT session cookie
+    const sessionUserId = verifiedUid;
+    const sessionUserName = verifiedName;
 
     const sessionToken = await signJWT({
       userId: sessionUserId,
@@ -162,16 +83,13 @@ export async function POST(req: Request) {
       success: true,
       uid: verifiedUid,
       role: targetRole,
-      isFirstTime,
-      profileIncomplete,
       user: {
         id: sessionUserId,
         uid: verifiedUid,
         email: cleanEmail,
         name: sessionUserName,
         role: targetRole,
-        avatarUrl: verifiedPhoto || dbUser?.avatarUrl || null,
-        studentProfile: dbUser?.studentProfile || null,
+        avatarUrl: verifiedPhoto || null,
       },
     });
 

@@ -215,7 +215,7 @@ export default async function PublicStudentPortfolioPage({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {profile.user.certificates.map((c) => (
+            {profile.user.certificates.map((c: any) => (
               <Link
                 key={c.id}
                 href={`/verify/${c.certificateNo}`}
@@ -244,7 +244,7 @@ export default async function PublicStudentPortfolioPage({
             </div>
 
             <div className="space-y-3">
-              {profile.user.hackathonRegistrations.map((h) => (
+              {profile.user.hackathonRegistrations.map((h: any) => (
                 <div key={h.id} className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
                   <div className="flex justify-between items-center text-xs">
                     <span className="font-bold text-white">{h.hackathon.title}</span>

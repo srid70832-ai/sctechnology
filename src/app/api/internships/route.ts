@@ -44,7 +44,7 @@ export async function GET(req: Request) {
         },
       });
 
-      prismaFormatted = prismaInternships.map((item) => ({
+      prismaFormatted = prismaInternships.map((item: any) => ({
         id: item.id,
         title: item.title,
         company: item.company.name,

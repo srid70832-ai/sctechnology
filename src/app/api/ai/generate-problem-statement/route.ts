@@ -23,10 +23,10 @@ export async function POST(req: Request) {
       additionalRequirements 
     } = body;
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_KEY;
 
     const prompt = `
-You are an expert SIH-level Problem Statement Architect for SC TECH (a premier career & technology platform).
+You are an expert Problem Statement Architect for SC TECH (a premier career & technology platform).
 Design an authentic, high-impact, real-world technology challenge based on the following input:
 
 Domain: ${domain || "Software Engineering"}
@@ -71,31 +71,36 @@ CRITICAL RULES:
     let generatedProblem: any = null;
 
     if (apiKey) {
-      try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                responseMimeType: "application/json",
-                temperature: 0.2,
-              },
-            }),
-          }
-        );
+      const models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
+      for (const model of models) {
+        if (generatedProblem) break;
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                  responseMimeType: "application/json",
+                  temperature: 0.2,
+                },
+              }),
+            }
+          );
 
-        if (response.ok) {
-          const data = await response.json();
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) {
-            generatedProblem = JSON.parse(text);
+          if (response.ok) {
+            const data = await response.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+              const cleanText = text.replace(/^```json/g, "").replace(/```$/g, "").trim();
+              generatedProblem = JSON.parse(cleanText);
+            }
           }
+        } catch (geminiErr) {
+          console.warn(`Gemini (${model}) API call note:`, geminiErr);
         }
-      } catch (geminiErr) {
-        console.warn("Gemini API call failed, using deterministic generation fallback:", geminiErr);
       }
     }
 

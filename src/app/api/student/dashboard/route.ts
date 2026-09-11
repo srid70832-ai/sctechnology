@@ -104,7 +104,7 @@ export async function GET(req: Request) {
         totalHRSessions: hrSessionCount,
       },
       events: eventsList,
-      recommendedInternships: recommendedInternships.map((item) => ({
+      recommendedInternships: recommendedInternships.map((item: any) => ({
         id: item.id,
         title: item.title,
         companyName: item.company.name,
@@ -123,7 +123,7 @@ export async function GET(req: Request) {
         hasProjects: completedProjectCount > 0,
       },
       notifications,
-      unreadNotificationsCount: notifications.filter((n) => !n.isRead).length,
+      unreadNotificationsCount: notifications.filter((n: any) => !n.isRead).length,
     });
   } catch (error) {
     console.error("Student Dashboard API Error:", error);

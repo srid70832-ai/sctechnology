@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStudentProjectHistory } from "@/lib/project-lifecycle-service";
+import { getServerSession } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    const session = await getServerSession(req);
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get("userId") || req.headers.get("x-user-id");
+    const userId = session?.userId || searchParams.get("userId") || req.headers.get("x-user-id");
 
     if (!userId) {
       return NextResponse.json({ history: [] });

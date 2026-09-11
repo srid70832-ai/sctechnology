@@ -2,7 +2,6 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { prisma } from "./prisma";
 import { verifyFirebaseToken } from "./firebase-admin";
 
 const JWT_SECRET = process.env.JWT_SECRET || "sctech_fallback_secret_for_development_mode_2026";
@@ -101,65 +100,14 @@ export async function getServerSession(req?: Request): Promise<SessionPayload | 
           targetRole = "ADMIN";
         }
 
-        // Try Prisma DB synchronization (non-blocking)
-        let dbUser: any = null;
-        try {
-          dbUser = await prisma.user.findFirst({
-            where: {
-              OR: [
-                { firebaseUid: authResult.uid },
-                ...(userEmail ? [{ email: userEmail }] : []),
-              ],
-            },
-            select: { id: true, email: true, role: true, name: true, status: true, firebaseUid: true },
-          });
-
-          if (!dbUser && userEmail) {
-            dbUser = await prisma.user.create({
-              data: {
-                firebaseUid: authResult.uid,
-                email: userEmail,
-                name: authResult.name || userEmail.split("@")[0],
-                role: targetRole,
-                isVerified: true,
-                status: "ACTIVE",
-                studentProfile: {
-                  create: {
-                    username: userEmail.split("@")[0] + "_" + Math.floor(100 + Math.random() * 900),
-                    isPublic: true,
-                  },
-                },
-              },
-              select: { id: true, email: true, role: true, name: true, status: true, firebaseUid: true },
-            });
-          } else if (dbUser) {
-            if ((targetRole === "ADMIN" || targetRole === "SUPER_ADMIN") && dbUser.role !== targetRole) {
-              dbUser = await prisma.user.update({
-                where: { id: dbUser.id },
-                data: { role: targetRole, firebaseUid: authResult.uid },
-                select: { id: true, email: true, role: true, name: true, status: true, firebaseUid: true },
-              });
-            } else if (!dbUser.firebaseUid) {
-              dbUser = await prisma.user.update({
-                where: { id: dbUser.id },
-                data: { firebaseUid: authResult.uid },
-                select: { id: true, email: true, role: true, name: true, status: true, firebaseUid: true },
-              });
-            }
-          }
-        } catch (prismaErr) {
-          console.warn("[AUTH] Prisma session lookup notice:", prismaErr);
-        }
-
-        const effectiveRole = (targetRole === "ADMIN" || targetRole === "SUPER_ADMIN")
-          ? targetRole
-          : (dbUser?.role as SessionPayload["role"] || targetRole);
+        const effectiveRole = targetRole;
+        const userName = authResult.name || (userEmail ? userEmail.split("@")[0] : "Student");
 
         return {
-          userId: dbUser?.id || authResult.uid,
+          userId: authResult.uid,
           email: userEmail,
           role: effectiveRole,
-          name: dbUser?.name || authResult.name || (userEmail ? userEmail.split("@")[0] : "Student"),
+          name: userName,
         };
       }
     }

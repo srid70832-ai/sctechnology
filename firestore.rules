@@ -154,5 +154,56 @@ service cloud.firestore {
       allow create, update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
       allow delete: if isAdmin();
     }
+
+    // SC Idea Link: Ideas & Connections
+    match /scIdeaLinkIdeas/{ideaId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && (resource.data.studentId == request.auth.uid || isAdmin());
+    }
+
+    match /scIdeaLinkConnections/{connId} {
+      allow read: if isAuthenticated() && (resource.data.studentId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // Project Enrollments & Tasks
+    match /projectEnrollments/{enrId} {
+      allow read: if isAuthenticated() && (resource.data.studentId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && (resource.data.studentId == request.auth.uid || isAdmin());
+    }
+
+    match /projectTasks/{taskId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Discovered Catalogs
+    match /discoveredInternships/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /discoveredCourses/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /hackathonResults/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Support Tickets & Audit Logs
+    match /supportTickets/{ticketId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      allow read, write: if isAdmin();
+    }
   }
 }

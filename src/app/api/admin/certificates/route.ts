@@ -34,7 +34,7 @@ export async function GET(req: Request) {
       orderBy: { issueDate: "desc" },
     });
 
-    let filtered = allCerts.map((c) => {
+    let filtered = allCerts.map((c: any) => {
       let parsedMetadata: CertificateMetadata | undefined = undefined;
       if (c.metadata) {
         try {
@@ -47,15 +47,15 @@ export async function GET(req: Request) {
     });
 
     if (typeFilter !== "ALL") {
-      filtered = filtered.filter((c) => c.type === typeFilter);
+      filtered = filtered.filter((c: any) => c.type === typeFilter);
     }
 
     if (statusFilter !== "ALL") {
-      filtered = filtered.filter((c) => c.status === statusFilter);
+      filtered = filtered.filter((c: any) => c.status === statusFilter);
     }
 
     if (search) {
-      filtered = filtered.filter((c) => {
+      filtered = filtered.filter((c: any) => {
         const no = (c.certificateNo || "").toLowerCase();
         const sName = (c.studentName || c.student?.name || "").toLowerCase();
         const sEmail = (c.student?.email || "").toLowerCase();

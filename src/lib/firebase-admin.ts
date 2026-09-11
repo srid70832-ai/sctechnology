@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp, App, cert } from "firebase-admin/app";
 import { getAuth, Auth, DecodedIdToken } from "firebase-admin/auth";
+import { getFirestore, Firestore } from "firebase-admin/firestore";
 
 const projectId = 
   process.env.FIREBASE_PROJECT_ID || 
@@ -38,6 +39,7 @@ function getAdminApp(): App {
 
 export const adminApp = getAdminApp();
 export const adminAuth: Auth = getAuth(adminApp);
+export const adminDb: Firestore = getFirestore(adminApp);
 
 export interface AuthVerificationResult {
   success: boolean;

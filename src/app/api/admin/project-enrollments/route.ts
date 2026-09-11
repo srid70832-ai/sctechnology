@@ -2,9 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 import { ProjectEnrollment, getRemainingDays } from "@/lib/project-lifecycle-service";
+import { requireAdmin } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    const authCheck = await requireAdmin(req);
+    if (!authCheck.authorized) {
+      return authCheck.errorResponse || NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const snap = await getDocs(collection(db, "projectEnrollments"));
     const list: ProjectEnrollment[] = [];
     const now = Date.now();

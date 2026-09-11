@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_EVALUATION_CRITERIA, ProblemStatement, generateSlug } from "@/lib/problem-statements";
@@ -36,7 +36,7 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
     });
 
-    const list: ProblemStatement[] = prismaList.map((p) => {
+    const list: ProblemStatement[] = prismaList.map((p: any) => {
       let evalCriteria = DEFAULT_EVALUATION_CRITERIA;
       try {
         if (p.evaluationCriteria) {

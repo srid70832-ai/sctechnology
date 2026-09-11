@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { comparePassword, signJWT, setSessionCookie } from "@/lib/auth";
+import { queryFirestoreDocs, COLLECTIONS, getStudentProfile } from "@/lib/firestore";
+import { where } from "firebase/firestore";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +13,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-      include: {
-        studentProfile: true,
-      },
-    });
+    const cleanEmail = email.toLowerCase().trim();
+    const users = await queryFirestoreDocs(COLLECTIONS.USERS, where("email", "==", cleanEmail));
+    const user = users[0];
 
     if (!user) {
       return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
@@ -38,24 +36,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Your account is currently suspended. Please contact support." }, { status: 403 });
     }
 
+    const userId = user.uid || user.id;
     const token = signJWT({
-      userId: user.id,
+      userId,
       email: user.email,
-      name: user.name,
-      role: user.role as any,
+      name: user.name || user.displayName || user.email.split("@")[0],
+      role: user.role || "STUDENT",
     });
 
     setSessionCookie(token);
+    const studentProfile = await getStudentProfile(userId);
 
     return NextResponse.json({
       success: true,
       user: {
-        id: user.id,
+        id: userId,
         email: user.email,
-        name: user.name,
-        role: user.role,
-        avatarUrl: user.avatarUrl,
-        studentProfile: user.studentProfile,
+        name: user.name || user.displayName,
+        role: user.role || "STUDENT",
+        avatarUrl: user.avatarUrl || user.photoURL || null,
+        studentProfile,
       },
     });
   } catch (error) {

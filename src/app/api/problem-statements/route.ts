@@ -74,7 +74,7 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
     });
 
-    const formattedList: ProblemStatement[] = prismaList.map((p) => {
+    const formattedList: ProblemStatement[] = prismaList.map((p: any) => {
       let evalCriteria = DEFAULT_EVALUATION_CRITERIA;
       try {
         if (p.evaluationCriteria) {

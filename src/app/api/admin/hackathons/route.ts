@@ -20,7 +20,7 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
     });
 
-    const hackathons: HackathonItem[] = prismaHackathons.map((p) => {
+    const hackathons: HackathonItem[] = prismaHackathons.map((p: any) => {
       let parsedRules: string[] = [];
       let parsedPrizes: string[] = [];
       let parsedRounds: any[] = [];

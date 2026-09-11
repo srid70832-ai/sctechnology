@@ -1,6 +1,7 @@
-import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/utils";
 import crypto from "crypto";
+import { COLLECTIONS, queryFirestoreDocs, getFirestoreDoc, saveFirestoreDoc } from "@/lib/firestore";
+import { where, orderBy } from "firebase/firestore";
 
 // ==========================================
 // 1. CERTIFICATE TYPES & ENUMS
@@ -84,16 +85,6 @@ export interface CertificateModelData {
 // 2. CERTIFICATE ID GENERATOR
 // ==========================================
 
-/**
- * Format:
- * SC-R1-2026-XXXXXX
- * SC-R2-2026-XXXXXX
- * SC-PART-2026-XXXXXX
- * SC-WIN-2026-XXXXXX
- * SC-INT-2026-XXXXXX
- * SC-COURSE-2026-XXXXXX
- * SC-PROJ-2026-XXXXXX
- */
 export function generateCertificateId(type: CertificateType): string {
   const year = new Date().getFullYear();
   const randomSuffix = Math.floor(100000 + Math.random() * 900000); // 6-digit random
@@ -266,18 +257,18 @@ export function getCertificateWording(
 export async function findCertificateByNo(certificateNo: string): Promise<CertificateModelData | null> {
   const norm = certificateNo.trim();
   try {
-    const cert = await prisma.certificate.findFirst({
-      where: {
-        OR: [{ certificateNo: norm }, { id: norm }],
-      },
-    });
+    const certsByNo = await queryFirestoreDocs(COLLECTIONS.CERTIFICATES, where("certificateNo", "==", norm));
+    let cert = certsByNo[0];
+    if (!cert) {
+      cert = await getFirestoreDoc(COLLECTIONS.CERTIFICATES, norm);
+    }
 
     if (!cert) return null;
 
     let parsedMetadata: CertificateMetadata | undefined = undefined;
     if (cert.metadata) {
       try {
-        parsedMetadata = JSON.parse(cert.metadata);
+        parsedMetadata = typeof cert.metadata === "string" ? JSON.parse(cert.metadata) : cert.metadata;
       } catch {
         // ignore parse error
       }
@@ -295,16 +286,13 @@ export async function findCertificateByNo(certificateNo: string): Promise<Certif
 
 export async function findStudentCertificates(studentId: string): Promise<CertificateModelData[]> {
   try {
-    const certs = await prisma.certificate.findMany({
-      where: { studentId },
-      orderBy: { issueDate: "desc" },
-    });
+    const certs = await queryFirestoreDocs(COLLECTIONS.CERTIFICATES, where("studentId", "==", studentId));
 
     return certs.map((c) => {
       let parsedMetadata: CertificateMetadata | undefined = undefined;
       if (c.metadata) {
         try {
-          parsedMetadata = JSON.parse(c.metadata);
+          parsedMetadata = typeof c.metadata === "string" ? JSON.parse(c.metadata) : c.metadata;
         } catch {
           // ignore
         }
