@@ -20,6 +20,8 @@ import {
   Award
 } from "lucide-react";
 import { formatISTDate } from "@/lib/platform-models";
+import { db } from "@/lib/firebase";
+import { collection, getDocs } from "firebase/firestore";
 
 export default function HackathonsListPage() {
   const [internalHackathons, setInternalHackathons] = useState<any[]>([]);
@@ -31,17 +33,46 @@ export default function HackathonsListPage() {
   const loadHackathons = async () => {
     setLoading(true);
     try {
+      let publishedList: any[] = [];
+
       // 1. Fetch Internal Hackathons from Public Hackathons API
-      const res = await fetch("/api/hackathons");
-      if (res.ok) {
-        const data = await res.json();
-        const published = (data.hackathons || []).filter(
-          (h: any) => h.status === "PUBLISHED" || h.status === "ONGOING"
-        );
-        setInternalHackathons(published);
+      try {
+        const res = await fetch("/api/hackathons");
+        if (res.ok) {
+          const data = await res.json();
+          publishedList = (data.hackathons || []).filter(
+            (h: any) => h.status === "PUBLISHED" || h.status === "ONGOING"
+          );
+        }
+      } catch (apiErr) {
+        console.warn("API hackathons load notice:", apiErr);
       }
 
-      // 2. Fetch External Hackathons from Opportunities API
+      // 2. Direct Firestore fallback
+      try {
+        const hSnap = await getDocs(collection(db, "hackathons"));
+        if (!hSnap.empty) {
+          const fsPublished: any[] = [];
+          hSnap.forEach((d) => {
+            const data: any = d.data();
+            if (data.status === "PUBLISHED" || data.status === "ONGOING" || !data.status) {
+              fsPublished.push({ id: d.id, ...data });
+            }
+          });
+          const map = new Map<string, any>();
+          for (const item of publishedList) map.set(item.id, item);
+          for (const item of fsPublished) {
+            if (!map.has(item.id)) map.set(item.id, item);
+          }
+          publishedList = Array.from(map.values());
+        }
+      } catch (fsErr) {
+        console.warn("Firestore direct hackathons fetch notice:", fsErr);
+      }
+
+      setInternalHackathons(publishedList);
+
+      // 3. Fetch External Hackathons from Opportunities API
       const oppRes = await fetch("/api/opportunities?type=HACKATHON&limit=50");
       if (oppRes.ok) {
         const oppData = await oppRes.json();

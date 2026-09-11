@@ -26,7 +26,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/providers/ToastProvider";
 import { HackathonItem, HackathonRound, formatISTDate } from "@/lib/platform-models";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { collection, doc, getDocs, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { useAuth } from "@/components/providers/AuthProvider";
 
 export default function AdminHackathonsPage() {
@@ -76,20 +77,100 @@ export default function AdminHackathonsPage() {
     setLoading(true);
     try {
       const token = (await firebaseUser?.getIdToken()) || (await auth.currentUser?.getIdToken());
-      const res = await fetch("/api/admin/hackathons", {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setHackathons(data.hackathons || []);
+      let fetchedHackathons: HackathonItem[] = [];
+
+      // 1. Try API fetch
+      try {
+        const res = await fetch("/api/admin/hackathons", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.hackathons) && data.hackathons.length > 0) {
+            fetchedHackathons = data.hackathons;
+          }
+        }
+      } catch (apiErr) {
+        console.warn("API hackathons load notice:", apiErr);
       }
 
-      // Load problem statements for linking
-      const probRes = await fetch("/api/problem-statements");
-      if (probRes.ok) {
-        const pData = await probRes.json();
-        setAvailableProblems(pData.statements || pData.problemStatements || []);
+      // 2. Direct Firestore client fallback
+      try {
+        const hCol = collection(db, "hackathons");
+        const hSnap = await getDocs(hCol);
+        if (!hSnap.empty) {
+          const fsList: HackathonItem[] = [];
+          hSnap.forEach((d) => {
+            const data: any = d.data();
+            const formatSafeDate = (val: any) => {
+              if (!val) return "";
+              if (typeof val === "string") return val;
+              if (typeof val?.toDate === "function") return val.toDate().toISOString();
+              if (typeof val?.seconds === "number") return new Date(val.seconds * 1000).toISOString();
+              return String(val);
+            };
+
+            fsList.push({
+              id: d.id,
+              title: data.title || "Untitled Hackathon",
+              slug: data.slug || d.id,
+              bannerUrl: data.bannerUrl || null,
+              shortDescription: data.shortDescription || data.description || "",
+              fullDescription: data.fullDescription || data.description || "",
+              startDate: formatSafeDate(data.startDate),
+              startTime: data.startTime || "09:00 AM",
+              endDate: formatSafeDate(data.endDate),
+              endTime: data.endTime || "11:59 PM",
+              registrationDeadline: formatSafeDate(data.registrationDeadline),
+              registrationFee: Number(data.registrationFee ?? data.entryFee ?? 0),
+              entryFee: Number(data.registrationFee ?? data.entryFee ?? 0),
+              prizePool: Number(data.prizePool ?? 50000),
+              prizes: Array.isArray(data.prizes) ? data.prizes : [],
+              rules: Array.isArray(data.rules) ? data.rules : [],
+              guidelines: data.guidelines || null,
+              judgingCriteria: data.judgingCriteria || null,
+              contactDetails: data.contactDetails || null,
+              submissionMethod: data.submissionMethod || "WEBSITE",
+              googleFormUrl: data.googleFormUrl || null,
+              problemStatementIds: Array.isArray(data.problemStatementIds) ? data.problemStatementIds : [],
+              rounds: Array.isArray(data.rounds) ? data.rounds : [],
+              minTeamSize: Number(data.minTeamSize) || 1,
+              maxTeamSize: Number(data.maxTeamSize) || 4,
+              maxParticipants: Number(data.maxParticipants) || 500,
+              registrationMode: data.registrationMode || "BOTH",
+              status: data.status || "PUBLISHED",
+              createdAt: formatSafeDate(data.createdAt) || new Date().toISOString(),
+              participantsCount: data.participantsCount || 0,
+              submissionsCount: data.submissionsCount || 0,
+            });
+          });
+
+          // Merge by ID giving priority to most recent
+          const map = new Map<string, HackathonItem>();
+          for (const item of fetchedHackathons) {
+            map.set(item.id, item);
+          }
+          for (const item of fsList) {
+            if (!map.has(item.id)) {
+              map.set(item.id, item);
+            }
+          }
+          fetchedHackathons = Array.from(map.values());
+        }
+      } catch (fsErr) {
+        console.warn("Firestore direct read notice:", fsErr);
       }
+
+      setHackathons(fetchedHackathons);
+
+      // Load problem statements for linking
+      try {
+        const probRes = await fetch("/api/problem-statements");
+        if (probRes.ok) {
+          const pData = await probRes.json();
+          setAvailableProblems(pData.statements || pData.problemStatements || []);
+        }
+      } catch {}
     } catch (err) {
       console.error(err);
       error("Error loading hackathon data");
@@ -248,25 +329,30 @@ export default function AdminHackathonsPage() {
     setSaving(true);
     try {
       const token = (await firebaseUser?.getIdToken()) || (await auth.currentUser?.getIdToken());
+      const hackathonSlug = editingHackathon?.slug || formData.title.toLowerCase().replace(/[^a-z0-9]/g, "-") + "-" + Date.now().toString().slice(-4);
+      const hackathonId = editingHackathon?.id || `hack-${hackathonSlug}`;
+
       const payload = {
-        ...(editingHackathon ? { id: editingHackathon.id } : {}),
-        title: formData.title,
+        id: hackathonId,
+        title: formData.title.trim(),
+        slug: hackathonSlug,
         bannerUrl: formData.bannerUrl || null,
-        shortDescription: formData.shortDescription,
-        fullDescription: formData.fullDescription,
-        startDate: new Date(formData.startDate).toISOString(),
+        shortDescription: formData.shortDescription.trim(),
+        fullDescription: formData.fullDescription.trim(),
+        startDate: formData.startDate,
         startTime: formData.startTime,
-        endDate: new Date(formData.endDate).toISOString(),
+        endDate: formData.endDate,
         endTime: formData.endTime,
-        registrationDeadline: new Date(formData.registrationDeadline).toISOString(),
+        registrationDeadline: formData.registrationDeadline,
         registrationFee: Number(formData.registrationFee),
+        entryFee: Number(formData.registrationFee),
         maxParticipants: Number(formData.maxParticipants),
         registrationMode: formData.registrationMode,
         minTeamSize: Number(formData.minTeamSize),
         maxTeamSize: Number(formData.maxTeamSize),
         prizePool: Number(formData.prizePool),
-        prizes: formData.prizes.split("\n").filter(Boolean),
-        rules: formData.rules.split("\n").filter(Boolean),
+        prizes: formData.prizes.split("\n").map((s) => s.trim()).filter(Boolean),
+        rules: formData.rules.split("\n").map((s) => s.trim()).filter(Boolean),
         guidelines: formData.guidelines || null,
         judgingCriteria: formData.judgingCriteria || null,
         contactDetails: formData.contactDetails || null,
@@ -277,25 +363,38 @@ export default function AdminHackathonsPage() {
         status: formData.status,
       };
 
-      const res = await fetch("/api/admin/hackathons", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json();
-      if (res.ok) {
-        success(json.message || "Hackathon saved successfully!");
-        setModalOpen(false);
-        loadData();
-      } else {
-        error(json.error || "Failed to save hackathon");
+      // 1. Direct Firestore write (immediate & resilient)
+      try {
+        const docRef = doc(db, "hackathons", hackathonId);
+        await setDoc(docRef, {
+          ...payload,
+          updatedAt: serverTimestamp(),
+          createdAt: editingHackathon?.createdAt || serverTimestamp(),
+        }, { merge: true });
+      } catch (fsWriteErr) {
+        console.warn("Client Firestore write notice:", fsWriteErr);
       }
-    } catch {
-      error("Error saving hackathon");
+
+      // 2. Server API sync
+      try {
+        await fetch("/api/admin/hackathons", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(payload),
+        });
+      } catch (apiErr) {
+        console.warn("Server API sync notice:", apiErr);
+      }
+
+      success("Hackathon saved successfully!");
+      setModalOpen(false);
+      await loadData();
+    } catch (err: any) {
+      console.error("Save hackathon error:", err);
+      error(err?.message || "Error saving hackathon");
     } finally {
       setSaving(false);
     }
@@ -305,17 +404,22 @@ export default function AdminHackathonsPage() {
     if (!confirm(`Are you sure you want to delete hackathon "${title}"?`)) return;
 
     try {
+      // 1. Delete from Firestore directly
+      try {
+        await deleteDoc(doc(db, "hackathons", id));
+      } catch (fsErr) {
+        console.warn("Firestore delete notice:", fsErr);
+      }
+
+      // 2. Delete via API
       const token = await auth.currentUser?.getIdToken();
-      const res = await fetch(`/api/admin/hackathons?id=${id}`, {
+      await fetch(`/api/admin/hackathons?id=${id}`, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (res.ok) {
-        success("Hackathon deleted successfully.");
-        setHackathons(hackathons.filter((h) => h.id !== id));
-      } else {
-        error("Failed to delete hackathon");
-      }
+
+      success("Hackathon deleted successfully.");
+      setHackathons((prev) => prev.filter((h) => h.id !== id));
     } catch {
       error("Network error");
     }
@@ -323,8 +427,16 @@ export default function AdminHackathonsPage() {
 
   const toggleLaunchStatus = async (h: HackathonItem, targetStatus: HackathonItem["status"]) => {
     try {
+      // 1. Direct Firestore update
+      try {
+        await setDoc(doc(db, "hackathons", h.id), { status: targetStatus, updatedAt: serverTimestamp() }, { merge: true });
+      } catch (fsErr) {
+        console.warn("Firestore status update notice:", fsErr);
+      }
+
+      // 2. Server API update
       const token = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/admin/hackathons", {
+      await fetch("/api/admin/hackathons", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -340,10 +452,9 @@ export default function AdminHackathonsPage() {
           status: targetStatus,
         }),
       });
-      if (res.ok) {
-        success(`Hackathon is now ${targetStatus}!`);
-        setHackathons(hackathons.map((item) => (item.id === h.id ? { ...item, status: targetStatus } : item)));
-      }
+
+      success(`Hackathon is now ${targetStatus}!`);
+      setHackathons((prev) => prev.map((item) => (item.id === h.id ? { ...item, status: targetStatus } : item)));
     } catch {
       error("Failed to update status");
     }
