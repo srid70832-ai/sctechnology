@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "./prisma";
-import { adminAuth } from "./firebase-admin";
+import { verifyFirebaseToken } from "./firebase-admin";
 
 const JWT_SECRET = process.env.JWT_SECRET || "sctech_fallback_secret_for_development_mode_2026";
 export const AUTH_COOKIE_NAME = "sctech_session_token";
@@ -71,139 +71,130 @@ export async function getServerSession(req?: Request): Promise<SessionPayload | 
     }
 
     if (authHeader && authHeader.startsWith("Bearer ")) {
-      const idToken = authHeader.substring(7).trim();
-      if (idToken) {
+      const dummyReq = new Request("http://localhost", {
+        headers: { Authorization: authHeader },
+      });
+      const authResult = await verifyFirebaseToken(dummyReq);
+
+      if (authResult.success && authResult.uid) {
+        const userEmail = authResult.email ? authResult.email.toLowerCase().trim() : "";
+        const isAdminEmail = userEmail === "admin@sctech.com" || userEmail === "superadmin@sctech.com" || userEmail === "srics2425@gmail.com";
+        const isSuperAdminEmail = userEmail === "superadmin@sctech.com" || userEmail === "srics2425@gmail.com";
+
+        // Query Firestore users/{uid} for role if needed
+        let firestoreRole: string | null = null;
         try {
-          const decoded = await adminAuth.verifyIdToken(idToken);
-          if (decoded && decoded.uid) {
-            const userEmail = decoded.email ? decoded.email.toLowerCase() : "";
-            
-            // Find user in Prisma by firebaseUid or email
-            let user = await prisma.user.findFirst({
-              where: {
-                OR: [
-                  { firebaseUid: decoded.uid },
-                  ...(userEmail ? [{ email: userEmail }] : []),
-                ],
+          const fsRes = await fetch(
+            `https://firestore.googleapis.com/v1/projects/scmain-b2cde/databases/(default)/documents/users/${authResult.uid}`,
+            authResult.token ? { headers: { Authorization: `Bearer ${authResult.token}` } } : {}
+          );
+          if (fsRes.ok) {
+            const fsJson = await fsRes.json();
+            firestoreRole = fsJson.fields?.role?.stringValue || null;
+          }
+        } catch {}
+
+        let targetRole: SessionPayload["role"] = "STUDENT";
+        if (isSuperAdminEmail || authResult.role === "SUPER_ADMIN" || firestoreRole === "SUPER_ADMIN") {
+          targetRole = "SUPER_ADMIN";
+        } else if (isAdminEmail || authResult.role === "ADMIN" || firestoreRole === "ADMIN") {
+          targetRole = "ADMIN";
+        }
+
+        // Try Prisma DB synchronization (non-blocking)
+        let dbUser: any = null;
+        try {
+          dbUser = await prisma.user.findFirst({
+            where: {
+              OR: [
+                { firebaseUid: authResult.uid },
+                ...(userEmail ? [{ email: userEmail }] : []),
+              ],
+            },
+            select: { id: true, email: true, role: true, name: true, status: true, firebaseUid: true },
+          });
+
+          if (!dbUser && userEmail) {
+            dbUser = await prisma.user.create({
+              data: {
+                firebaseUid: authResult.uid,
+                email: userEmail,
+                name: authResult.name || userEmail.split("@")[0],
+                role: targetRole,
+                isVerified: true,
+                status: "ACTIVE",
+                studentProfile: {
+                  create: {
+                    username: userEmail.split("@")[0] + "_" + Math.floor(100 + Math.random() * 900),
+                    isPublic: true,
+                  },
+                },
               },
               select: { id: true, email: true, role: true, name: true, status: true, firebaseUid: true },
             });
-
-            const isAdminEmail = userEmail === "admin@sctech.com" || userEmail === "superadmin@sctech.com" || userEmail === "srics2425@gmail.com";
-
-            // Check custom claims
-            const hasAdminClaim = decoded.role === "ADMIN" || decoded.role === "SUPER_ADMIN" || decoded.admin === true;
-
-            // Check Firestore users/{uid} document for role
-            let firestoreRole: string | null = null;
-            try {
-              const fsRes = await fetch(
-                `https://firestore.googleapis.com/v1/projects/scmain-b2cde/databases/(default)/documents/users/${decoded.uid}`,
-                { headers: { Authorization: `Bearer ${idToken}` } }
-              );
-              if (fsRes.ok) {
-                const fsJson = await fsRes.json();
-                firestoreRole = fsJson.fields?.role?.stringValue || null;
-              }
-            } catch (fsErr) {
-              console.warn("Firestore role lookup notice:", fsErr);
-            }
-
-            const isFirestoreAdmin = firestoreRole === "ADMIN" || firestoreRole === "SUPER_ADMIN";
-
-            let targetRole: SessionPayload["role"] = "STUDENT";
-            if (userEmail === "superadmin@sctech.com" || userEmail === "srics2425@gmail.com" || decoded.role === "SUPER_ADMIN" || firestoreRole === "SUPER_ADMIN") {
-              targetRole = "SUPER_ADMIN";
-            } else if (isAdminEmail || hasAdminClaim || isFirestoreAdmin || user?.role === "ADMIN" || user?.role === "SUPER_ADMIN") {
-              targetRole = user?.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ADMIN";
-            }
-
-            if (!user && userEmail) {
-              // Ensure user exists in Prisma with authoritative role
-              user = await prisma.user.create({
-                data: {
-                  firebaseUid: decoded.uid,
-                  email: userEmail,
-                  name: decoded.name || decoded.displayName || userEmail.split("@")[0],
-                  role: targetRole,
-                  isVerified: true,
-                  status: "ACTIVE",
-                  studentProfile: {
-                    create: {
-                      username: userEmail.split("@")[0] + "_" + Math.floor(100 + Math.random() * 900),
-                      isPublic: true,
-                    },
-                  },
-                },
+          } else if (dbUser) {
+            if ((targetRole === "ADMIN" || targetRole === "SUPER_ADMIN") && dbUser.role !== targetRole) {
+              dbUser = await prisma.user.update({
+                where: { id: dbUser.id },
+                data: { role: targetRole, firebaseUid: authResult.uid },
                 select: { id: true, email: true, role: true, name: true, status: true, firebaseUid: true },
               });
-            } else if (user) {
-              const needsRoleUpdate = (targetRole === "ADMIN" || targetRole === "SUPER_ADMIN") && user.role !== targetRole;
-              const needsUidUpdate = !user.firebaseUid;
-              if (needsRoleUpdate || needsUidUpdate) {
-                user = await prisma.user.update({
-                  where: { id: user.id },
-                  data: { 
-                    firebaseUid: decoded.uid,
-                    ...(needsRoleUpdate ? { role: targetRole } : {})
-                  },
-                  select: { id: true, email: true, role: true, name: true, status: true, firebaseUid: true },
-                });
-              }
-            }
-
-            if (user && user.status !== "SUSPENDED") {
-              const effectiveRole = (targetRole === "ADMIN" || targetRole === "SUPER_ADMIN") 
-                ? targetRole 
-                : (user.role as SessionPayload["role"]);
-
-              return {
-                userId: user.id,
-                email: user.email,
-                role: effectiveRole,
-                name: user.name,
-              };
-            }
-
-            if (!user) {
-              return {
-                userId: decoded.uid,
-                email: userEmail,
-                role: targetRole,
-                name: decoded.name || (userEmail ? userEmail.split("@")[0] : "Student"),
-              };
+            } else if (!dbUser.firebaseUid) {
+              dbUser = await prisma.user.update({
+                where: { id: dbUser.id },
+                data: { firebaseUid: authResult.uid },
+                select: { id: true, email: true, role: true, name: true, status: true, firebaseUid: true },
+              });
             }
           }
-        } catch (tokenErr) {
-          console.warn("Token verification fallback notice:", tokenErr);
-          // Token verification failed or expired, fall through to cookie check
+        } catch (prismaErr) {
+          console.warn("[AUTH] Prisma session lookup notice:", prismaErr);
         }
+
+        const effectiveRole = (targetRole === "ADMIN" || targetRole === "SUPER_ADMIN")
+          ? targetRole
+          : (dbUser?.role as SessionPayload["role"] || targetRole);
+
+        return {
+          userId: dbUser?.id || authResult.uid,
+          email: userEmail,
+          role: effectiveRole,
+          name: dbUser?.name || authResult.name || (userEmail ? userEmail.split("@")[0] : "Student"),
+        };
       }
     }
 
     // 2. Check HTTP-only session cookie
-    const cookieStore = cookies();
-    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
-    if (!token) return null;
+    let token: string | undefined;
+    try {
+      const cookieStore = cookies();
+      token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+    } catch {}
 
-    const payload = verifyToken(token);
-    if (!payload) return null;
+    if (token) {
+      const payload = verifyToken(token);
+      if (payload && payload.userId) {
+        // Double check admin emails in payload
+        const userEmail = (payload.email || "").toLowerCase().trim();
+        let role = payload.role;
+        if (userEmail === "superadmin@sctech.com" || userEmail === "srics2425@gmail.com") {
+          role = "SUPER_ADMIN";
+        } else if (userEmail === "admin@sctech.com" && role !== "SUPER_ADMIN") {
+          role = "ADMIN";
+        }
 
-    // Verify user in db
-    const user = await prisma.user.findUnique({
-      where: { id: payload.userId },
-      select: { id: true, email: true, role: true, name: true, status: true },
-    });
+        return {
+          userId: payload.userId,
+          email: userEmail,
+          role,
+          name: payload.name || (userEmail ? userEmail.split("@")[0] : "Student"),
+        };
+      }
+    }
 
-    if (!user || user.status === "SUSPENDED") return null;
-
-    return {
-      userId: user.id,
-      email: user.email,
-      role: user.role as SessionPayload["role"],
-      name: user.name,
-    };
-  } catch {
+    return null;
+  } catch (err) {
+    console.error("[AUTH] getServerSession error:", err);
     return null;
   }
 }

@@ -11,7 +11,7 @@ import { Lock, Mail, Loader2, ArrowRight } from "lucide-react";
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get("redirect") || "/dashboard";
+  const redirectParam = searchParams.get("redirect");
 
   const { user, loginWithEmail, loginWithGoogle } = useAuth();
   const { success, error } = useToast();
@@ -21,20 +21,23 @@ function LoginForm() {
   const [loadingEmail, setLoadingEmail] = useState(false);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
 
-  // If already authenticated, redirect to destination
+  const resolveTarget = (role?: string, isAdmin?: boolean) => {
+    const isUserAdmin = isAdmin || role === "ADMIN" || role === "SUPER_ADMIN";
+    if (isUserAdmin) {
+      return redirectParam && redirectParam.startsWith("/admin") ? redirectParam : "/admin";
+    }
+    if (role === "JUDGE") return "/judge";
+    if (role === "COMPANY" || role === "HR") return "/company";
+    return redirectParam && !redirectParam.startsWith("/admin") ? redirectParam : "/dashboard";
+  };
+
+  // If already authenticated, redirect immediately
   useEffect(() => {
     if (user) {
-      if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
-        router.push("/admin");
-      } else if (user.role === "JUDGE") {
-        router.push("/judge");
-      } else if (user.role === "COMPANY" || user.role === "HR") {
-        router.push("/company");
-      } else {
-        router.push(redirect);
-      }
+      const target = resolveTarget(user.role);
+      router.replace(target);
     }
-  }, [user, router, redirect]);
+  }, [user, router, redirectParam]);
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,12 +48,11 @@ function LoginForm() {
       const res = await loginWithEmail(email, password);
       if (res.success) {
         success("Signed in successfully!");
-        if ((res as any).isAdmin) {
-          router.push("/admin");
-        } else if (res.onboardingRequired) {
-          router.push("/onboarding");
+        if (res.onboardingRequired) {
+          router.replace("/onboarding");
         } else {
-          router.push(redirect);
+          const target = resolveTarget((res as any).role, (res as any).isAdmin);
+          router.replace(target);
         }
       } else {
         error(res.error || "Invalid email or password");
@@ -68,12 +70,11 @@ function LoginForm() {
       const res = await loginWithGoogle();
       if (res.success) {
         success("Signed in with Google successfully!");
-        if ((res as any).isAdmin) {
-          router.push("/admin");
-        } else if (res.onboardingRequired) {
-          router.push("/onboarding");
+        if (res.onboardingRequired) {
+          router.replace("/onboarding");
         } else {
-          router.push(redirect);
+          const target = resolveTarget((res as any).role, (res as any).isAdmin);
+          router.replace(target);
         }
       } else if (res.error) {
         error(res.error);

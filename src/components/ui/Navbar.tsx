@@ -127,8 +127,8 @@ export const Navbar = () => {
             </button>
 
             {/* Notification Bell */}
-            <button
-              onClick={() => setHasNotifications(!hasNotifications)}
+            <Link
+              href="/notifications"
               className="relative p-2 rounded-full bg-slate-900/80 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition"
               aria-label="Notifications"
             >
@@ -136,7 +136,7 @@ export const Navbar = () => {
               {hasNotifications && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-[#070B14] animate-pulse" />
               )}
-            </button>
+            </Link>
 
             {/* User Profile Pill matching Reference */}
             {user ? (

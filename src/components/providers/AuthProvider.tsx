@@ -18,13 +18,20 @@ import { getStudentProfile, saveStudentProfile, StudentProfileData } from "@/lib
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
+export interface SyncResult {
+  profile: StudentProfileData | null;
+  role: "STUDENT" | "ADMIN" | "SUPER_ADMIN";
+  isAdmin: boolean;
+  onboardingRequired: boolean;
+}
+
 interface AuthContextType {
   user: UserSession | null;
   firebaseUser: FirebaseUser | null;
   studentProfile: StudentProfileData | null;
   loading: boolean;
-  loginWithGoogle: () => Promise<{ success: boolean; onboardingRequired?: boolean; error?: string }>;
-  loginWithEmail: (email: string, pass: string) => Promise<{ success: boolean; onboardingRequired?: boolean; error?: string }>;
+  loginWithGoogle: () => Promise<{ success: boolean; role?: string; isAdmin?: boolean; onboardingRequired?: boolean; error?: string }>;
+  loginWithEmail: (email: string, pass: string) => Promise<{ success: boolean; role?: string; isAdmin?: boolean; onboardingRequired?: boolean; error?: string }>;
   registerWithEmail: (email: string, pass: string, name: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -48,67 +55,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [studentProfile, setStudentProfile] = useState<StudentProfileData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Sync user with Firestore
-  const syncFirestoreUser = async (fbUser: FirebaseUser) => {
+  // Synchronize user with Firestore and backend session cookie
+  const syncFirestoreUser = async (fbUser: FirebaseUser): Promise<SyncResult> => {
+    const cleanEmail = (fbUser.email || "").toLowerCase().trim();
+    let initialRole: "STUDENT" | "ADMIN" | "SUPER_ADMIN" = "STUDENT";
+    if (cleanEmail === "srics2425@gmail.com" || cleanEmail === "superadmin@sctech.com") {
+      initialRole = "SUPER_ADMIN";
+    } else if (cleanEmail === "admin@sctech.com") {
+      initialRole = "ADMIN";
+    }
+
     try {
+      // 1. Check or create Firestore document in users/{uid}
       const userRef = doc(db, "users", fbUser.uid);
       const userSnap = await getDoc(userRef);
 
-      const cleanEmail = (fbUser.email || "").toLowerCase().trim();
-      let role = "STUDENT";
-      if (cleanEmail === "srics2425@gmail.com" || cleanEmail === "superadmin@sctech.com") {
-        role = "SUPER_ADMIN";
-      } else if (cleanEmail === "admin@sctech.com") {
-        role = "ADMIN";
-      }
-
-      if (!userSnap.exists()) {
-        // Auto-claim referral code if saved in localStorage or cookie
-        if (typeof window !== "undefined") {
-          const storedRef = localStorage.getItem("sctech_referral_code") || sessionStorage.getItem("sctech_referral_code");
-          if (storedRef) {
-            try {
-              fetch("/api/referrals/claim", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ referralCode: storedRef, source: "WEBSITE" }),
-              }).catch(() => {});
-            } catch {}
-          }
-        }
-        await setDoc(userRef, {
-          uid: fbUser.uid,
-          email: fbUser.email || "",
-          displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (role === "SUPER_ADMIN" ? "Super Admin" : "Student"),
-          photoURL: fbUser.photoURL || null,
-          role,
-          emailVerified: Boolean(fbUser.emailVerified),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
+      let firestoreRole = initialRole;
+      if (userSnap.exists()) {
         const userData = userSnap.data();
-        if (role === "STUDENT" && userData?.role) {
-          role = userData.role;
+        if (userData?.role === "SUPER_ADMIN" || userData?.role === "ADMIN") {
+          firestoreRole = userData.role;
         }
-        await setDoc(userRef, {
-          displayName: fbUser.displayName || userData?.displayName || (role === "SUPER_ADMIN" ? "Super Admin" : "Student"),
-          photoURL: fbUser.photoURL || userData?.photoURL || null,
-          role,
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
       }
 
-      // Check student profile in Firestore (students/{uid})
-      const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN" || cleanEmail === "srics2425@gmail.com" || cleanEmail === "admin@sctech.com";
+      const resolvedRole: "STUDENT" | "ADMIN" | "SUPER_ADMIN" = 
+        (initialRole === "SUPER_ADMIN" || firestoreRole === "SUPER_ADMIN") ? "SUPER_ADMIN" :
+        (initialRole === "ADMIN" || firestoreRole === "ADMIN") ? "ADMIN" : "STUDENT";
+
+      const isAdmin = resolvedRole === "ADMIN" || resolvedRole === "SUPER_ADMIN";
+
+      // Save user doc
+      await setDoc(userRef, {
+        uid: fbUser.uid,
+        email: fbUser.email || "",
+        displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (isAdmin ? "Administrator" : "Student"),
+        photoURL: fbUser.photoURL || null,
+        role: resolvedRole,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
+      // 2. Load or initialize student profile
       let profile = await getStudentProfile(fbUser.uid);
       if (isAdmin) {
         if (!profile) {
           profile = {
             uid: fbUser.uid,
-            fullName: fbUser.displayName || fbUser.email?.split("@")[0] || (role === "SUPER_ADMIN" ? "Super Admin" : "Admin"),
+            fullName: fbUser.displayName || fbUser.email?.split("@")[0] || (resolvedRole === "SUPER_ADMIN" ? "Super Admin" : "Admin"),
             email: fbUser.email || "",
-            displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (role === "SUPER_ADMIN" ? "Super Admin" : "Admin"),
+            displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (resolvedRole === "SUPER_ADMIN" ? "Super Admin" : "Admin"),
             photoURL: fbUser.photoURL || null,
             mobileNumber: "",
             college: "SC TECH",
@@ -127,10 +121,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             onboardingCompleted: true,
             onboardingStep: 7,
           };
-          await saveStudentProfile(fbUser.uid, profile);
-        } else if (!profile.onboardingCompleted || !profile.profileCompleted) {
-          profile.onboardingCompleted = true;
-          profile.profileCompleted = true;
           await saveStudentProfile(fbUser.uid, profile);
         }
       } else if (!profile) {
@@ -162,19 +152,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setStudentProfile(profile);
 
-      setUser({
-        userId: fbUser.uid,
-        email: fbUser.email || "",
-        name: fbUser.displayName || fbUser.email?.split("@")[0] || "Student",
-        role: role as any,
-        avatarUrl: fbUser.photoURL || null,
-        studentProfile: profile,
-      });
-
-      // Synchronize server HTTP-only session cookie
+      // 3. Synchronize server session cookie & database record
+      let authoritativeRole = resolvedRole;
       try {
-        const idToken = await fbUser.getIdToken();
-        await fetch("/api/auth/firebase-sync", {
+        const idToken = await fbUser.getIdToken(true);
+        const syncRes = await fetch("/api/auth/firebase-sync", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -183,23 +165,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({
             uid: fbUser.uid,
             email: fbUser.email,
-            displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "Student",
+            displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (isAdmin ? "Admin" : "Student"),
             photoURL: fbUser.photoURL,
           }),
         });
-      } catch (cookieSyncErr) {
-        console.warn("Session cookie sync non-blocking error:", cookieSyncErr);
+
+        if (syncRes.ok) {
+          const syncData = await syncRes.json();
+          if (syncData.role) {
+            authoritativeRole = syncData.role;
+          }
+        }
+      } catch (syncErr) {
+        console.warn("Server session sync notice:", syncErr);
       }
 
-      return profile;
+      const finalIsAdmin = authoritativeRole === "ADMIN" || authoritativeRole === "SUPER_ADMIN";
+      const onboardingRequired = !finalIsAdmin && profile?.onboardingCompleted !== true;
+
+      setUser({
+        userId: fbUser.uid,
+        email: fbUser.email || "",
+        name: fbUser.displayName || fbUser.email?.split("@")[0] || (finalIsAdmin ? "Administrator" : "Student"),
+        role: authoritativeRole as any,
+        avatarUrl: fbUser.photoURL || null,
+        studentProfile: profile,
+      });
+
+      return {
+        profile,
+        role: authoritativeRole,
+        isAdmin: finalIsAdmin,
+        onboardingRequired,
+      };
     } catch (err) {
-      console.error("Firestore user sync error:", err);
-      return null;
+      console.error("Authentication sync error:", err);
+      return {
+        profile: null,
+        role: initialRole,
+        isAdmin: initialRole === "ADMIN" || initialRole === "SUPER_ADMIN",
+        onboardingRequired: false,
+      };
     }
   };
 
   useEffect(() => {
-    // Check redirect auth result
+    // Check redirect auth result for Google Redirect flow
     getRedirectResult(auth)
       .then(async (result) => {
         if (result?.user) {
@@ -241,13 +252,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (result?.user) {
-        const profile = await syncFirestoreUser(result.user);
-        const cleanEmail = (result.user.email || "").toLowerCase().trim();
-        const isAdmin = cleanEmail === "srics2425@gmail.com" || cleanEmail === "admin@sctech.com" || profile?.department === "Administration";
-        const onboardingRequired = !isAdmin && profile?.onboardingCompleted !== true;
-        return { success: true, onboardingRequired, isAdmin };
+        const syncRes = await syncFirestoreUser(result.user);
+        return { 
+          success: true, 
+          role: syncRes.role,
+          isAdmin: syncRes.isAdmin, 
+          onboardingRequired: syncRes.onboardingRequired 
+        };
       }
-      return { success: false, error: "Authentication synchronization failed." };
+      return { success: false, error: "Unable to complete account setup. Please try again." };
     } catch (error: any) {
       console.error("Google login error:", error);
       let msg = "Unable to sign in with Google. Please try again.";
@@ -265,11 +278,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithEmail = async (email: string, pass: string) => {
     try {
       const cred = await signInWithEmailAndPassword(auth, email, pass);
-      const profile = await syncFirestoreUser(cred.user);
-      const cleanEmail = (email || "").toLowerCase().trim();
-      const isAdmin = cleanEmail === "srics2425@gmail.com" || cleanEmail === "admin@sctech.com" || profile?.department === "Administration";
-      const onboardingRequired = !isAdmin && profile?.onboardingCompleted !== true;
-      return { success: true, onboardingRequired, isAdmin };
+      const syncRes = await syncFirestoreUser(cred.user);
+      return { 
+        success: true, 
+        role: syncRes.role,
+        isAdmin: syncRes.isAdmin, 
+        onboardingRequired: syncRes.onboardingRequired 
+      };
     } catch (error: any) {
       console.error("Email login error:", error);
       let msg = "Invalid email or password.";
