@@ -22,12 +22,13 @@ import {
   Layers,
   PlusCircle,
   CheckCircle2,
-  Sparkles
+  Sparkles,
+  AlertTriangle,
+  RefreshCw
 } from "lucide-react";
 import { useToast } from "@/components/providers/ToastProvider";
 import { HackathonItem, HackathonRound, formatISTDate } from "@/lib/platform-models";
-import { auth, db } from "@/lib/firebase";
-import { collection, doc, getDocs, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
 import { useAuth } from "@/components/providers/AuthProvider";
 
 export default function AdminHackathonsPage() {
@@ -37,6 +38,7 @@ export default function AdminHackathonsPage() {
   const [hackathons, setHackathons] = useState<HackathonItem[]>([]);
   const [availableProblems, setAvailableProblems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
@@ -75,92 +77,27 @@ export default function AdminHackathonsPage() {
 
   const loadData = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const token = (await firebaseUser?.getIdToken()) || (await auth.currentUser?.getIdToken());
-      let fetchedHackathons: HackathonItem[] = [];
+      const res = await fetch("/api/admin/hackathons", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: "no-store",
+      });
 
-      // 1. Try API fetch
-      try {
-        const res = await fetch("/api/admin/hackathons", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.hackathons) && data.hackathons.length > 0) {
-            fetchedHackathons = data.hackathons;
-          }
-        }
-      } catch (apiErr) {
-        console.warn("API hackathons load notice:", apiErr);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const errMsg = errData.error || `Server responded with error status ${res.status}`;
+        setLoadError(errMsg);
+        return;
       }
 
-      // 2. Direct Firestore client fallback
-      try {
-        const hCol = collection(db, "hackathons");
-        const hSnap = await getDocs(hCol);
-        if (!hSnap.empty) {
-          const fsList: HackathonItem[] = [];
-          hSnap.forEach((d) => {
-            const data: any = d.data();
-            const formatSafeDate = (val: any) => {
-              if (!val) return "";
-              if (typeof val === "string") return val;
-              if (typeof val?.toDate === "function") return val.toDate().toISOString();
-              if (typeof val?.seconds === "number") return new Date(val.seconds * 1000).toISOString();
-              return String(val);
-            };
-
-            fsList.push({
-              id: d.id,
-              title: data.title || "Untitled Hackathon",
-              slug: data.slug || d.id,
-              bannerUrl: data.bannerUrl || null,
-              shortDescription: data.shortDescription || data.description || "",
-              fullDescription: data.fullDescription || data.description || "",
-              startDate: formatSafeDate(data.startDate),
-              startTime: data.startTime || "09:00 AM",
-              endDate: formatSafeDate(data.endDate),
-              endTime: data.endTime || "11:59 PM",
-              registrationDeadline: formatSafeDate(data.registrationDeadline),
-              registrationFee: Number(data.registrationFee ?? data.entryFee ?? 0),
-              prizePool: Number(data.prizePool ?? 50000),
-              prizes: Array.isArray(data.prizes) ? data.prizes : [],
-              rules: Array.isArray(data.rules) ? data.rules : [],
-              guidelines: data.guidelines || null,
-              judgingCriteria: data.judgingCriteria || null,
-              contactDetails: data.contactDetails || null,
-              submissionMethod: data.submissionMethod || "WEBSITE",
-              googleFormUrl: data.googleFormUrl || null,
-              problemStatementIds: Array.isArray(data.problemStatementIds) ? data.problemStatementIds : [],
-              rounds: Array.isArray(data.rounds) ? data.rounds : [],
-              minTeamSize: Number(data.minTeamSize) || 1,
-              maxTeamSize: Number(data.maxTeamSize) || 4,
-              maxParticipants: Number(data.maxParticipants) || 500,
-              registrationMode: data.registrationMode || "BOTH",
-              status: data.status || "PUBLISHED",
-              createdAt: formatSafeDate(data.createdAt) || new Date().toISOString(),
-              participantsCount: data.participantsCount || 0,
-              submissionsCount: data.submissionsCount || 0,
-            });
-          });
-
-          // Merge by ID giving priority to most recent
-          const map = new Map<string, HackathonItem>();
-          for (const item of fetchedHackathons) {
-            map.set(item.id, item);
-          }
-          for (const item of fsList) {
-            if (!map.has(item.id)) {
-              map.set(item.id, item);
-            }
-          }
-          fetchedHackathons = Array.from(map.values());
-        }
-      } catch (fsErr) {
-        console.warn("Firestore direct read notice:", fsErr);
+      const data = await res.json();
+      if (Array.isArray(data.hackathons)) {
+        setHackathons(data.hackathons);
+      } else {
+        setHackathons([]);
       }
-
-      setHackathons(fetchedHackathons);
 
       // Load problem statements for linking
       try {
@@ -169,10 +106,12 @@ export default function AdminHackathonsPage() {
           const pData = await probRes.json();
           setAvailableProblems(pData.statements || pData.problemStatements || []);
         }
-      } catch {}
-    } catch (err) {
-      console.error(err);
-      error("Error loading hackathon data");
+      } catch (probErr) {
+        console.warn("Problem statements fetch notice:", probErr);
+      }
+    } catch (err: any) {
+      console.error("Error loading hackathon data:", err);
+      setLoadError(err?.message || "Failed to load hackathon data from server");
     } finally {
       setLoading(false);
     }
@@ -362,33 +301,21 @@ export default function AdminHackathonsPage() {
         status: formData.status,
       };
 
-      // 1. Direct Firestore write (immediate & resilient)
-      try {
-        const docRef = doc(db, "hackathons", hackathonId);
-        await setDoc(docRef, {
-          ...payload,
-          updatedAt: serverTimestamp(),
-          createdAt: editingHackathon?.createdAt || serverTimestamp(),
-        }, { merge: true });
-      } catch (fsWriteErr) {
-        console.warn("Client Firestore write notice:", fsWriteErr);
+      const res = await fetch("/api/admin/hackathons", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed to save hackathon (HTTP ${res.status})`);
       }
 
-      // 2. Server API sync
-      try {
-        await fetch("/api/admin/hackathons", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(payload),
-        });
-      } catch (apiErr) {
-        console.warn("Server API sync notice:", apiErr);
-      }
-
-      success("Hackathon saved successfully!");
+      success(editingHackathon ? "Hackathon updated successfully!" : "Hackathon launched and saved successfully!");
       setModalOpen(false);
       await loadData();
     } catch (err: any) {
@@ -403,39 +330,28 @@ export default function AdminHackathonsPage() {
     if (!confirm(`Are you sure you want to delete hackathon "${title}"?`)) return;
 
     try {
-      // 1. Delete from Firestore directly
-      try {
-        await deleteDoc(doc(db, "hackathons", id));
-      } catch (fsErr) {
-        console.warn("Firestore delete notice:", fsErr);
-      }
-
-      // 2. Delete via API
-      const token = await auth.currentUser?.getIdToken();
-      await fetch(`/api/admin/hackathons?id=${id}`, {
+      const token = (await firebaseUser?.getIdToken()) || (await auth.currentUser?.getIdToken());
+      const res = await fetch(`/api/admin/hackathons?id=${id}`, {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to delete hackathon");
+      }
+
       success("Hackathon deleted successfully.");
       setHackathons((prev) => prev.filter((h) => h.id !== id));
-    } catch {
-      error("Network error");
+    } catch (err: any) {
+      error(err?.message || "Network error");
     }
   };
 
   const toggleLaunchStatus = async (h: HackathonItem, targetStatus: HackathonItem["status"]) => {
     try {
-      // 1. Direct Firestore update
-      try {
-        await setDoc(doc(db, "hackathons", h.id), { status: targetStatus, updatedAt: serverTimestamp() }, { merge: true });
-      } catch (fsErr) {
-        console.warn("Firestore status update notice:", fsErr);
-      }
-
-      // 2. Server API update
-      const token = await auth.currentUser?.getIdToken();
-      await fetch("/api/admin/hackathons", {
+      const token = (await firebaseUser?.getIdToken()) || (await auth.currentUser?.getIdToken());
+      const res = await fetch("/api/admin/hackathons", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -452,10 +368,15 @@ export default function AdminHackathonsPage() {
         }),
       });
 
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to update status");
+      }
+
       success(`Hackathon is now ${targetStatus}!`);
       setHackathons((prev) => prev.map((item) => (item.id === h.id ? { ...item, status: targetStatus } : item)));
-    } catch {
-      error("Failed to update status");
+    } catch (err: any) {
+      error(err?.message || "Failed to update status");
     }
   };
 
@@ -529,6 +450,19 @@ export default function AdminHackathonsPage() {
         <div className="py-20 flex items-center justify-center gap-3 text-slate-400">
           <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
           <span>Loading hackathons...</span>
+        </div>
+      ) : loadError ? (
+        <div className="py-16 text-center rounded-3xl bg-rose-950/20 border border-rose-500/30 space-y-3">
+          <AlertTriangle className="w-10 h-10 text-rose-400 mx-auto" />
+          <h3 className="text-sm font-bold text-white">Failed to Load Hackathons</h3>
+          <p className="text-xs text-rose-300/80 max-w-md mx-auto">{loadError}</p>
+          <button
+            onClick={loadData}
+            className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600/30 hover:bg-rose-600/50 border border-rose-500/50 text-xs font-semibold text-rose-200 transition"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Retry</span>
+          </button>
         </div>
       ) : filteredHackathons.length === 0 ? (
         <div className="py-16 text-center rounded-3xl bg-slate-900/40 border border-slate-800/80 space-y-3">

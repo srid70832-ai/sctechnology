@@ -2,7 +2,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { verifyFirebaseToken } from "./firebase-admin";
+import { verifyFirebaseToken, getAdminDb } from "./firebase-admin";
 
 const JWT_SECRET = process.env.JWT_SECRET || "sctech_fallback_secret_for_development_mode_2026";
 export const AUTH_COOKIE_NAME = "sctech_session_token";
@@ -92,15 +92,29 @@ export async function getServerSession(req?: Request): Promise<SessionPayload | 
         // Query Firestore users/{uid} for role if needed
         let firestoreRole: string | null = null;
         try {
-          const fsRes = await fetch(
-            `https://firestore.googleapis.com/v1/projects/scmain-b2cde/databases/(default)/documents/users/${authResult.uid}`,
-            authResult.token ? { headers: { Authorization: `Bearer ${authResult.token}` } } : {}
-          );
-          if (fsRes.ok) {
-            const fsJson = await fsRes.json();
-            firestoreRole = fsJson.fields?.role?.stringValue || null;
+          const adminDb = getAdminDb();
+          if (adminDb) {
+            const userSnap = await adminDb.collection("users").doc(authResult.uid).get();
+            if (userSnap.exists) {
+              firestoreRole = userSnap.data()?.role || null;
+            }
           }
-        } catch {}
+        } catch (dbErr) {
+          console.warn("[AUTH] AdminDb user lookup notice:", dbErr);
+        }
+
+        if (!firestoreRole) {
+          try {
+            const fsRes = await fetch(
+              `https://firestore.googleapis.com/v1/projects/scmain-b2cde/databases/(default)/documents/users/${authResult.uid}`,
+              authResult.token ? { headers: { Authorization: `Bearer ${authResult.token}` } } : {}
+            );
+            if (fsRes.ok) {
+              const fsJson = await fsRes.json();
+              firestoreRole = fsJson.fields?.role?.stringValue || null;
+            }
+          } catch {}
+        }
 
         let targetRole: SessionPayload["role"] = "STUDENT";
         if (isSuperAdminEmail || authResult.role === "SUPER_ADMIN" || firestoreRole === "SUPER_ADMIN") {
