@@ -123,7 +123,6 @@ export default function AdminHackathonsPage() {
               endTime: data.endTime || "11:59 PM",
               registrationDeadline: formatSafeDate(data.registrationDeadline),
               registrationFee: Number(data.registrationFee ?? data.entryFee ?? 0),
-              entryFee: Number(data.registrationFee ?? data.entryFee ?? 0),
               prizePool: Number(data.prizePool ?? 50000),
               prizes: Array.isArray(data.prizes) ? data.prizes : [],
               rules: Array.isArray(data.rules) ? data.rules : [],

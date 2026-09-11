@@ -75,7 +75,6 @@ export async function GET(req: Request) {
         endDate: toISOStringSafe(p.endDate),
         registrationDeadline: toISOStringSafe(p.registrationDeadline),
         registrationFee: Number(p.registrationFee ?? p.entryFee ?? 0),
-        entryFee: Number(p.registrationFee ?? p.entryFee ?? 0),
         prizePool: Number(p.prizePool ?? 50000),
         prizes: parsedPrizes,
         rules: parsedRules,
