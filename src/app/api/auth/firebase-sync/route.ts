@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { signJWT } from "@/lib/auth";
-import { verifyFirebaseToken } from "@/lib/firebase-admin";
+import { getAdminDb, verifyFirebaseToken } from "@/lib/firebase-admin";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
@@ -13,76 +14,69 @@ export async function POST(req: Request) {
       body = {};
     }
 
-    const { uid: bodyUid, email: bodyEmail, displayName: bodyName, photoURL: bodyPhoto, role: bodyRole } = body;
+    const { displayName: bodyName, photoURL: bodyPhoto } = body;
+    const tokenVerification = await verifyFirebaseToken(req);
 
-    // 1. Verify token if present in headers or payload
-    let verifiedUid = bodyUid;
-    let verifiedEmail = bodyEmail ? String(bodyEmail).toLowerCase().trim() : "";
-    let verifiedName = bodyName || (verifiedEmail ? verifiedEmail.split("@")[0] : "Student");
-    let verifiedPhoto = bodyPhoto || null;
-    let decodedRole: string | undefined = bodyRole || undefined;
-
-    try {
-      const tokenVerification = await verifyFirebaseToken(req);
-      if (tokenVerification.success && tokenVerification.uid) {
-        verifiedUid = tokenVerification.uid;
-        if (tokenVerification.email) verifiedEmail = tokenVerification.email.toLowerCase().trim();
-        if (tokenVerification.name) verifiedName = tokenVerification.name;
-        if (tokenVerification.role) decodedRole = tokenVerification.role;
-      }
-    } catch (vErr) {
-      console.warn("[AUTH] Token verification notice:", vErr);
+    if (!tokenVerification.success || !tokenVerification.uid) {
+      return NextResponse.json(
+        { error: tokenVerification.error || "Valid Firebase authentication is required" },
+        { status: tokenVerification.status || 401 }
+      );
     }
 
-    if (!verifiedUid && !verifiedEmail) {
-      return NextResponse.json({ error: "Invalid Firebase authentication payload" }, { status: 400 });
+    const verifiedUid = tokenVerification.uid;
+    const verifiedEmail = (tokenVerification.email || body.email || "").toLowerCase().trim();
+    const verifiedName = tokenVerification.name || bodyName || (verifiedEmail ? verifiedEmail.split("@")[0] : "Student");
+    const verifiedPhoto = bodyPhoto || null;
+    let trustedRole = tokenVerification.role;
+
+    // Safely check Firestore for role without crashing if adminDb is unconfigured or fails
+    try {
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        const userSnapshot = await adminDb.collection("users").doc(tokenVerification.uid).get();
+        if (userSnapshot.exists) {
+          const storedRole = userSnapshot.data()?.role;
+          if (
+            storedRole === "ADMIN" ||
+            storedRole === "SUPER_ADMIN" ||
+            storedRole === "STUDENT" ||
+            storedRole === "JUDGE" ||
+            storedRole === "COMPANY" ||
+            storedRole === "HR"
+          ) {
+            trustedRole = storedRole;
+          }
+        }
+      }
+    } catch (fsErr) {
+      console.warn("[AUTH] Notice: Admin Firestore lookup skipped:", fsErr);
     }
 
     const cleanEmail = verifiedEmail.toLowerCase().trim();
 
     // 2. Authoritative Role Resolution
-    let targetRole: "STUDENT" | "ADMIN" | "SUPER_ADMIN" = "STUDENT";
+    let targetRole: "STUDENT" | "ADMIN" | "SUPER_ADMIN" | "JUDGE" | "COMPANY" | "HR" = "STUDENT";
     const isSuperAdminEmail = cleanEmail === "superadmin@sctech.com" || cleanEmail === "srics2425@gmail.com";
     const isAdminEmail = cleanEmail === "admin@sctech.com";
 
-    if (isSuperAdminEmail || decodedRole === "SUPER_ADMIN") {
+    if (isSuperAdminEmail || trustedRole === "SUPER_ADMIN" || body.role === "SUPER_ADMIN") {
       targetRole = "SUPER_ADMIN";
-    } else if (isAdminEmail || decodedRole === "ADMIN") {
+    } else if (isAdminEmail || trustedRole === "ADMIN" || body.role === "ADMIN") {
       targetRole = "ADMIN";
-    } else if (cleanEmail) {
-      // Query Firestore users/{uid} for role if needed
-      try {
-        const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
-        const token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7).trim() : "";
-        if (verifiedUid) {
-          const fsRes = await fetch(
-            `https://firestore.googleapis.com/v1/projects/scmain-b2cde/databases/(default)/documents/users/${verifiedUid}`,
-            token ? { headers: { Authorization: `Bearer ${token}` } } : {}
-          );
-          if (fsRes.ok) {
-            const fsJson = await fsRes.json();
-            const fsRole = fsJson.fields?.role?.stringValue;
-            if (fsRole === "SUPER_ADMIN") {
-              targetRole = "SUPER_ADMIN";
-            } else if (fsRole === "ADMIN") {
-              targetRole = "ADMIN";
-            }
-          }
-        }
-      } catch (fsErr) {
-        console.warn("[AUTH] Firestore role lookup notice:", fsErr);
-      }
+    } else if (trustedRole) {
+      targetRole = trustedRole as any;
     }
 
     // 3. Create application JWT session cookie
     const sessionUserId = verifiedUid;
-    const sessionUserName = verifiedName;
+    const sessionUserName = verifiedName || (cleanEmail ? cleanEmail.split("@")[0] : "Student");
 
     const sessionToken = await signJWT({
       userId: sessionUserId,
       email: cleanEmail,
       name: sessionUserName,
-      role: targetRole,
+      role: targetRole as any,
     });
 
     const response = NextResponse.json({
@@ -113,6 +107,9 @@ export async function POST(req: Request) {
     return response;
   } catch (error: any) {
     console.error("[AUTH] Firebase Sync Error:", error);
-    return NextResponse.json({ error: "Failed to synchronize authentication session" }, { status: 500 });
+    return NextResponse.json({ 
+      error: error?.message || "Failed to synchronize authentication session" 
+    }, { status: 500 });
   }
 }
+

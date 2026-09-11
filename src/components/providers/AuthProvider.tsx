@@ -26,6 +26,8 @@ export interface SyncResult {
   onboardingRequired: boolean;
 }
 
+const SESSION_SYNC_ERROR_PREFIX = "AUTH_SESSION_SYNC_FAILED:";
+
 interface AuthContextType {
   user: UserSession | null;
   firebaseUser: FirebaseUser | null;
@@ -164,41 +166,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 3. Synchronize server session cookie & database record
       let authoritativeRole = resolvedRole;
       try {
-        const idToken = await fbUser.getIdToken(false).catch(() => null);
-        const syncPayload = {
-          uid: fbUser.uid,
-          email: fbUser.email,
-          displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (isAdmin ? "Admin" : "Student"),
-          photoURL: fbUser.photoURL,
-          role: resolvedRole,
-        };
+        const idToken = await fbUser.getIdToken(true).catch(() => null);
+        if (idToken) {
+          const syncPayload = {
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (isAdmin ? "Admin" : "Student"),
+            photoURL: fbUser.photoURL,
+            role: resolvedRole,
+          };
 
-        let syncRes = await fetch("/api/auth/firebase-sync", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-          },
-          body: JSON.stringify(syncPayload),
-        });
-
-        if (!syncRes.ok && idToken) {
-          // Retry without Bearer token if serverless token verification had any network issue
-          syncRes = await fetch("/api/auth/firebase-sync", {
+          const syncRes = await fetch("/api/auth/firebase-sync", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${idToken}`,
+            },
             body: JSON.stringify(syncPayload),
           });
-        }
 
-        if (syncRes.ok) {
-          const syncData = await syncRes.json();
-          if (syncData.role) {
-            authoritativeRole = syncData.role;
+          if (syncRes.ok) {
+            const syncData = await syncRes.json().catch(() => ({}));
+            if (syncData.success && syncData.role) {
+              authoritativeRole = syncData.role;
+            }
+          } else {
+            const errData = await syncRes.json().catch(() => ({}));
+            console.warn("Server session sync notice (HTTP " + syncRes.status + "):", errData);
           }
-        } else {
-          const errData = await syncRes.json().catch(() => ({}));
-          console.warn("Backend session sync status notice:", syncRes.status, errData);
         }
       } catch (syncErr) {
         console.warn("Server session sync notice:", syncErr);
@@ -224,12 +219,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     } catch (err) {
       console.error("Authentication sync error:", err);
-      return {
-        profile: null,
-        role: initialRole,
-        isAdmin: initialRole === "ADMIN" || initialRole === "SUPER_ADMIN",
-        onboardingRequired: false,
-      };
+      throw err;
     }
   };
 
@@ -295,6 +285,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: "Unable to complete Google sign-in. Please try again." };
     } catch (error: any) {
       console.error("Google login error:", error?.code, error?.message || error);
+      if (typeof error?.message === "string" && error.message.startsWith(SESSION_SYNC_ERROR_PREFIX)) {
+        return {
+          success: false,
+          error: "Authentication succeeded, but your SC TECH session could not be created. Please try again.",
+        };
+      }
       let msg = "Unable to sign in with Google. Please try again.";
       if (error?.code === "auth/popup-closed-by-user" || error?.code === "auth/cancelled-popup-request") {
         msg = "Google sign-in was cancelled.";
@@ -331,6 +327,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     } catch (error: any) {
       console.error("Email login error:", error?.code, error?.message || error);
+      if (typeof error?.message === "string" && error.message.startsWith(SESSION_SYNC_ERROR_PREFIX)) {
+        return {
+          success: false,
+          error: "Authentication succeeded, but your SC TECH session could not be created. Please try again.",
+        };
+      }
       let msg = "Invalid email or password.";
       if (error.code === "auth/user-not-found" || error.code === "auth/wrong-password" || error.code === "auth/invalid-credential") {
         msg = "Invalid email address or password.";
