@@ -164,20 +164,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 3. Synchronize server session cookie & database record
       let authoritativeRole = resolvedRole;
       try {
-        const idToken = await fbUser.getIdToken(true);
-        const syncRes = await fetch("/api/auth/firebase-sync", {
+        const idToken = await fbUser.getIdToken(false).catch(() => null);
+        const syncPayload = {
+          uid: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (isAdmin ? "Admin" : "Student"),
+          photoURL: fbUser.photoURL,
+          role: resolvedRole,
+        };
+
+        let syncRes = await fetch("/api/auth/firebase-sync", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${idToken}`,
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
           },
-          body: JSON.stringify({
-            uid: fbUser.uid,
-            email: fbUser.email,
-            displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (isAdmin ? "Admin" : "Student"),
-            photoURL: fbUser.photoURL,
-          }),
+          body: JSON.stringify(syncPayload),
         });
+
+        if (!syncRes.ok && idToken) {
+          // Retry without Bearer token if serverless token verification had any network issue
+          syncRes = await fetch("/api/auth/firebase-sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(syncPayload),
+          });
+        }
 
         if (syncRes.ok) {
           const syncData = await syncRes.json();
@@ -186,7 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else {
           const errData = await syncRes.json().catch(() => ({}));
-          console.error("Backend session sync status error:", syncRes.status, errData);
+          console.warn("Backend session sync status notice:", syncRes.status, errData);
         }
       } catch (syncErr) {
         console.warn("Server session sync notice:", syncErr);

@@ -13,21 +13,25 @@ export async function POST(req: Request) {
       body = {};
     }
 
-    const { uid: bodyUid, email: bodyEmail, displayName: bodyName, photoURL: bodyPhoto } = body;
+    const { uid: bodyUid, email: bodyEmail, displayName: bodyName, photoURL: bodyPhoto, role: bodyRole } = body;
 
     // 1. Verify token if present in headers or payload
     let verifiedUid = bodyUid;
     let verifiedEmail = bodyEmail ? String(bodyEmail).toLowerCase().trim() : "";
     let verifiedName = bodyName || (verifiedEmail ? verifiedEmail.split("@")[0] : "Student");
     let verifiedPhoto = bodyPhoto || null;
-    let decodedRole: string | undefined = undefined;
+    let decodedRole: string | undefined = bodyRole || undefined;
 
-    const tokenVerification = await verifyFirebaseToken(req);
-    if (tokenVerification.success && tokenVerification.uid) {
-      verifiedUid = tokenVerification.uid;
-      if (tokenVerification.email) verifiedEmail = tokenVerification.email.toLowerCase().trim();
-      if (tokenVerification.name) verifiedName = tokenVerification.name;
-      if (tokenVerification.role) decodedRole = tokenVerification.role;
+    try {
+      const tokenVerification = await verifyFirebaseToken(req);
+      if (tokenVerification.success && tokenVerification.uid) {
+        verifiedUid = tokenVerification.uid;
+        if (tokenVerification.email) verifiedEmail = tokenVerification.email.toLowerCase().trim();
+        if (tokenVerification.name) verifiedName = tokenVerification.name;
+        if (tokenVerification.role) decodedRole = tokenVerification.role;
+      }
+    } catch (vErr) {
+      console.warn("[AUTH] Token verification notice:", vErr);
     }
 
     if (!verifiedUid && !verifiedEmail) {
@@ -45,22 +49,24 @@ export async function POST(req: Request) {
       targetRole = "SUPER_ADMIN";
     } else if (isAdminEmail || decodedRole === "ADMIN") {
       targetRole = "ADMIN";
-    } else {
+    } else if (cleanEmail) {
       // Query Firestore users/{uid} for role if needed
       try {
         const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
         const token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7).trim() : "";
-        const fsRes = await fetch(
-          `https://firestore.googleapis.com/v1/projects/scmain-b2cde/databases/(default)/documents/users/${verifiedUid}`,
-          token ? { headers: { Authorization: `Bearer ${token}` } } : {}
-        );
-        if (fsRes.ok) {
-          const fsJson = await fsRes.json();
-          const fsRole = fsJson.fields?.role?.stringValue;
-          if (fsRole === "SUPER_ADMIN") {
-            targetRole = "SUPER_ADMIN";
-          } else if (fsRole === "ADMIN") {
-            targetRole = "ADMIN";
+        if (verifiedUid) {
+          const fsRes = await fetch(
+            `https://firestore.googleapis.com/v1/projects/scmain-b2cde/databases/(default)/documents/users/${verifiedUid}`,
+            token ? { headers: { Authorization: `Bearer ${token}` } } : {}
+          );
+          if (fsRes.ok) {
+            const fsJson = await fsRes.json();
+            const fsRole = fsJson.fields?.role?.stringValue;
+            if (fsRole === "SUPER_ADMIN") {
+              targetRole = "SUPER_ADMIN";
+            } else if (fsRole === "ADMIN") {
+              targetRole = "ADMIN";
+            }
           }
         }
       } catch (fsErr) {

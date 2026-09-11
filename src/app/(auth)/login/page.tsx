@@ -21,8 +21,10 @@ function LoginForm() {
   const [loadingEmail, setLoadingEmail] = useState(false);
   const [loadingGoogle, setLoadingGoogle] = useState(false);
 
-  const resolveTarget = (role?: string, isAdmin?: boolean) => {
-    const isUserAdmin = isAdmin || role === "ADMIN" || role === "SUPER_ADMIN";
+  const resolveTarget = (role?: string, isAdmin?: boolean, userEmail?: string) => {
+    const cleanEmail = (userEmail || user?.email || email || "").toLowerCase().trim();
+    const isAdminEmail = cleanEmail === "srics2425@gmail.com" || cleanEmail === "superadmin@sctech.com" || cleanEmail === "admin@sctech.com";
+    const isUserAdmin = isAdmin || role === "ADMIN" || role === "SUPER_ADMIN" || isAdminEmail;
     if (isUserAdmin) {
       return redirectParam && redirectParam.startsWith("/admin") ? redirectParam : "/admin";
     }
@@ -34,7 +36,7 @@ function LoginForm() {
   // If already authenticated, navigate directly
   useEffect(() => {
     if (!loading && user) {
-      const target = resolveTarget(user.role);
+      const target = resolveTarget(user.role, undefined, user.email);
       window.location.href = target;
     }
   }, [user, loading, redirectParam]);
@@ -51,7 +53,7 @@ function LoginForm() {
         if (res.onboardingRequired) {
           window.location.href = redirectParam ? `/onboarding?redirect=${encodeURIComponent(redirectParam)}` : "/onboarding";
         } else {
-          const target = resolveTarget((res as any).role, (res as any).isAdmin);
+          const target = resolveTarget((res as any).role, (res as any).isAdmin, email);
           window.location.href = target;
         }
       } else {

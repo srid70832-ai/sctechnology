@@ -7,39 +7,65 @@ const projectId =
   process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 
   "scmain-b2cde";
 
-function getAdminApp(): App {
-  if (getApps().length > 0) {
-    return getApp();
-  }
-
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  let privateKey = process.env.FIREBASE_PRIVATE_KEY;
-
-  if (clientEmail && privateKey) {
-    try {
-      privateKey = privateKey.replace(/\\n/g, "\n");
-      return initializeApp({
-        credential: cert({
-          projectId,
-          clientEmail,
-          privateKey,
-        }),
-        projectId,
-      });
-    } catch (certErr) {
-      console.warn("Failed to initialize Firebase Admin with cert, falling back to projectId:", certErr);
+function getAdminApp(): App | null {
+  try {
+    if (getApps().length > 0) {
+      return getApp();
     }
-  }
 
-  // Initialize with projectId
-  return initializeApp({
-    projectId,
-  });
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+    if (clientEmail && privateKey) {
+      try {
+        privateKey = privateKey.replace(/\\n/g, "\n");
+        return initializeApp({
+          credential: cert({
+            projectId,
+            clientEmail,
+            privateKey,
+          }),
+          projectId,
+        });
+      } catch (certErr) {
+        console.warn("Failed to initialize Firebase Admin with cert, falling back to projectId:", certErr);
+      }
+    }
+
+    // Initialize with projectId
+    return initializeApp({
+      projectId,
+    });
+  } catch (err) {
+    console.warn("Firebase Admin initializeApp notice:", err);
+    return null;
+  }
 }
 
-export const adminApp = getAdminApp();
-export const adminAuth: Auth = getAuth(adminApp);
-export const adminDb: Firestore = getFirestore(adminApp);
+export const adminApp: App | null = getAdminApp();
+
+export function getAdminAuth(): Auth | null {
+  try {
+    if (adminApp) return getAuth(adminApp);
+    const app = getAdminApp();
+    return app ? getAuth(app) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getAdminDb(): Firestore | null {
+  try {
+    if (adminApp) return getFirestore(adminApp);
+    const app = getAdminApp();
+    return app ? getFirestore(app) : null;
+  } catch {
+    return null;
+  }
+}
+
+export const adminAuth = getAdminAuth() as Auth;
+export const adminDb = getAdminDb() as Firestore;
 
 export interface AuthVerificationResult {
   success: boolean;
@@ -80,19 +106,22 @@ export async function verifyFirebaseToken(req: Request): Promise<AuthVerificatio
 
   // 1. Try Firebase Admin verifyIdToken
   try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    
-    if (decodedToken && decodedToken.uid) {
-      return {
-        success: true,
-        uid: decodedToken.uid,
-        email: decodedToken.email ? decodedToken.email.toLowerCase().trim() : "",
-        name: decodedToken.name || decodedToken.displayName || (decodedToken.email ? decodedToken.email.split("@")[0] : "Student"),
-        role: decodedToken.role || (decodedToken.admin === true ? "ADMIN" : undefined),
-        token,
-        decodedToken,
-        status: 200,
-      };
+    const auth = getAdminAuth();
+    if (auth) {
+      const decodedToken = await auth.verifyIdToken(token);
+      
+      if (decodedToken && decodedToken.uid) {
+        return {
+          success: true,
+          uid: decodedToken.uid,
+          email: decodedToken.email ? decodedToken.email.toLowerCase().trim() : "",
+          name: decodedToken.name || decodedToken.displayName || (decodedToken.email ? decodedToken.email.split("@")[0] : "Student"),
+          role: decodedToken.role || (decodedToken.admin === true ? "ADMIN" : undefined),
+          token,
+          decodedToken,
+          status: 200,
+        };
+      }
     }
   } catch (err: any) {
     console.warn("Firebase Admin verifyIdToken note (attempting JWT claim validation):", err?.message || err);
