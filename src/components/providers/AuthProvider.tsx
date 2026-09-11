@@ -6,12 +6,13 @@ import {
   auth, 
   googleProvider, 
   signInWithPopup, 
-  signInWithRedirect,
   getRedirectResult,
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  browserLocalPersistence,
+  setPersistence,
   FirebaseUser
 } from "@/lib/firebase";
 import { getStudentProfile, saveStudentProfile, StudentProfileData } from "@/lib/firestore";
@@ -68,14 +69,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       // 1. Check or create Firestore document in users/{uid}
       const userRef = doc(db, "users", fbUser.uid);
-      const userSnap = await getDoc(userRef);
-
       let firestoreRole = initialRole;
-      if (userSnap.exists()) {
-        const userData = userSnap.data();
-        if (userData?.role === "SUPER_ADMIN" || userData?.role === "ADMIN") {
-          firestoreRole = userData.role;
+
+      try {
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          if (userData?.role === "SUPER_ADMIN" || userData?.role === "ADMIN") {
+            firestoreRole = userData.role;
+          }
         }
+      } catch (fsDocErr) {
+        console.warn("Firestore user document read notice:", fsDocErr);
       }
 
       const resolvedRole: "STUDENT" | "ADMIN" | "SUPER_ADMIN" = 
@@ -85,14 +90,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const isAdmin = resolvedRole === "ADMIN" || resolvedRole === "SUPER_ADMIN";
 
       // Save user doc
-      await setDoc(userRef, {
-        uid: fbUser.uid,
-        email: fbUser.email || "",
-        displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (isAdmin ? "Administrator" : "Student"),
-        photoURL: fbUser.photoURL || null,
-        role: resolvedRole,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
+      try {
+        await setDoc(userRef, {
+          uid: fbUser.uid,
+          email: fbUser.email || "",
+          displayName: fbUser.displayName || fbUser.email?.split("@")[0] || (isAdmin ? "Administrator" : "Student"),
+          photoURL: fbUser.photoURL || null,
+          role: resolvedRole,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } catch (setDocErr) {
+        console.warn("Firestore user doc write notice:", setDocErr);
+      }
 
       // 2. Load or initialize student profile
       let profile = await getStudentProfile(fbUser.uid);
@@ -175,6 +184,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (syncData.role) {
             authoritativeRole = syncData.role;
           }
+        } else {
+          const errData = await syncRes.json().catch(() => ({}));
+          console.error("Backend session sync status error:", syncRes.status, errData);
         }
       } catch (syncErr) {
         console.warn("Server session sync notice:", syncErr);
@@ -210,7 +222,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    // Check redirect auth result for Google Redirect flow
+    // 1. Initialize browser local persistence
+    if (typeof window !== "undefined") {
+      setPersistence(auth, browserLocalPersistence).catch((err) => {
+        console.warn("Firebase Auth persistence configuration notice:", err);
+      });
+    }
+
+    // 2. Safe check for redirect result without forcing or looping
     getRedirectResult(auth)
       .then(async (result) => {
         if (result?.user) {
@@ -218,13 +237,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       })
       .catch((err) => {
-        console.error("Redirect auth error:", err);
+        if (err?.code && err.code !== "auth/null-user") {
+          console.warn("Firebase redirect auth check notice:", err?.code, err?.message);
+        }
       });
 
+    // 3. Centralized Auth State Listener
     const unsubscribe = onAuthStateChanged(auth, async (currentFbUser) => {
       setFirebaseUser(currentFbUser);
       if (currentFbUser) {
-        await syncFirestoreUser(currentFbUser);
+        try {
+          await syncFirestoreUser(currentFbUser);
+        } catch (syncErr) {
+          console.warn("Background auth state synchronization notice:", syncErr);
+        }
       } else {
         setUser(null);
         setStudentProfile(null);
@@ -237,19 +263,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithGoogle = async () => {
     try {
-      let result;
-      try {
-        result = await signInWithPopup(auth, googleProvider);
-      } catch (popupErr: any) {
-        if (popupErr.code === "auth/popup-blocked" || popupErr.code === "auth/popup-closed-by-user") {
-          if (popupErr.code === "auth/popup-closed-by-user") {
-            return { success: false, error: "Google sign-in was cancelled." };
-          }
-          await signInWithRedirect(auth, googleProvider);
-          return { success: true };
-        }
-        throw popupErr;
+      if (typeof window !== "undefined") {
+        await setPersistence(auth, browserLocalPersistence).catch((pErr) => {
+          console.warn("Firebase Auth setPersistence in Google login notice:", pErr);
+        });
       }
+
+      const result = await signInWithPopup(auth, googleProvider);
 
       if (result?.user) {
         const syncRes = await syncFirestoreUser(result.user);
@@ -260,16 +280,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           onboardingRequired: syncRes.onboardingRequired 
         };
       }
-      return { success: false, error: "Unable to complete account setup. Please try again." };
+      return { success: false, error: "Unable to complete Google sign-in. Please try again." };
     } catch (error: any) {
-      console.error("Google login error:", error);
+      console.error("Google login error:", error?.code, error?.message || error);
       let msg = "Unable to sign in with Google. Please try again.";
-      if (error.code === "auth/cancelled-popup-request" || error.code === "auth/popup-closed-by-user") {
+      if (error?.code === "auth/popup-closed-by-user" || error?.code === "auth/cancelled-popup-request") {
         msg = "Google sign-in was cancelled.";
-      } else if (error.code === "auth/unauthorized-domain") {
-        msg = "This domain is not authorized for Firebase Google Auth. Please check Firebase Console.";
-      } else if (error.code === "auth/network-request-failed") {
+      } else if (error?.code === "auth/popup-blocked") {
+        msg = "Google sign-in pop-up was blocked by your browser. Please allow pop-ups for this site and try again.";
+      } else if (error?.code === "auth/unauthorized-domain") {
+        msg = "This domain is not authorized for Firebase Google Auth. Please check Firebase Console authorized domains.";
+      } else if (error?.code === "auth/network-request-failed") {
         msg = "Network connection failed. Please check your internet connection.";
+      } else if (error?.code === "auth/operation-not-allowed") {
+        msg = "Google Sign-In is not enabled for this Firebase project.";
+      } else if (error?.code === "auth/account-exists-with-different-credential") {
+        msg = "An account already exists with this email address.";
       }
       return { success: false, error: msg };
     }
@@ -277,7 +303,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithEmail = async (email: string, pass: string) => {
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, pass);
+      if (typeof window !== "undefined") {
+        await setPersistence(auth, browserLocalPersistence).catch((pErr) => {
+          console.warn("Firebase Auth setPersistence in Email login notice:", pErr);
+        });
+      }
+
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
       const syncRes = await syncFirestoreUser(cred.user);
       return { 
         success: true, 
@@ -286,12 +318,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         onboardingRequired: syncRes.onboardingRequired 
       };
     } catch (error: any) {
-      console.error("Email login error:", error);
+      console.error("Email login error:", error?.code, error?.message || error);
       let msg = "Invalid email or password.";
       if (error.code === "auth/user-not-found" || error.code === "auth/wrong-password" || error.code === "auth/invalid-credential") {
         msg = "Invalid email address or password.";
       } else if (error.code === "auth/too-many-requests") {
         msg = "Too many failed attempts. Please try again later or reset password.";
+      } else if (error.code === "auth/user-disabled") {
+        msg = "This account has been disabled. Please contact support.";
       }
       return { success: false, error: msg };
     }
@@ -299,11 +333,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const registerWithEmail = async (email: string, pass: string, name: string) => {
     try {
-      const cred = await createUserWithEmailAndPassword(auth, email, pass);
+      if (typeof window !== "undefined") {
+        await setPersistence(auth, browserLocalPersistence).catch((pErr) => {
+          console.warn("Firebase Auth setPersistence in Registration notice:", pErr);
+        });
+      }
+
+      const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
       await syncFirestoreUser(cred.user);
       return { success: true };
     } catch (error: any) {
-      console.error("Registration error:", error);
+      console.error("Registration error:", error?.code, error?.message || error);
       let msg = "Failed to create account.";
       if (error.code === "auth/email-already-in-use") {
         msg = "An account with this email address already exists.";

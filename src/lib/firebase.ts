@@ -10,6 +10,8 @@ import {
   sendPasswordResetEmail, 
   signOut,
   onAuthStateChanged,
+  browserLocalPersistence,
+  setPersistence,
   User as FirebaseUser
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
@@ -31,7 +33,7 @@ export const firebaseConfig = {
 // Initialize Firebase App singleton
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firebase services
+// Initialize Firebase Auth
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
@@ -61,5 +63,7 @@ export {
   sendPasswordResetEmail,
   signOut,
   onAuthStateChanged,
+  browserLocalPersistence,
+  setPersistence,
 };
 export type { FirebaseUser };

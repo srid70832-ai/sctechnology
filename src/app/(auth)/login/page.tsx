@@ -13,7 +13,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirect");
 
-  const { user, loginWithEmail, loginWithGoogle } = useAuth();
+  const { user, loading, loginWithEmail, loginWithGoogle } = useAuth();
   const { success, error } = useToast();
 
   const [email, setEmail] = useState("");
@@ -33,11 +33,11 @@ function LoginForm() {
 
   // If already authenticated, navigate directly
   useEffect(() => {
-    if (user) {
+    if (!loading && user) {
       const target = resolveTarget(user.role);
       window.location.href = target;
     }
-  }, [user, redirectParam]);
+  }, [user, loading, redirectParam]);
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +49,7 @@ function LoginForm() {
       if (res.success) {
         success("Signed in successfully!");
         if (res.onboardingRequired) {
-          window.location.href = "/onboarding";
+          window.location.href = redirectParam ? `/onboarding?redirect=${encodeURIComponent(redirectParam)}` : "/onboarding";
         } else {
           const target = resolveTarget((res as any).role, (res as any).isAdmin);
           window.location.href = target;
@@ -71,7 +71,7 @@ function LoginForm() {
       if (res.success) {
         success("Signed in with Google successfully!");
         if (res.onboardingRequired) {
-          window.location.href = "/onboarding";
+          window.location.href = redirectParam ? `/onboarding?redirect=${encodeURIComponent(redirectParam)}` : "/onboarding";
         } else {
           const target = resolveTarget((res as any).role, (res as any).isAdmin);
           window.location.href = target;
@@ -79,8 +79,8 @@ function LoginForm() {
       } else if (res.error) {
         error(res.error);
       }
-    } catch {
-      error("Unable to sign in with Google. Please try again.");
+    } catch (err: any) {
+      error(err?.message || "Unable to sign in with Google. Please try again.");
     } finally {
       setLoadingGoogle(false);
     }
