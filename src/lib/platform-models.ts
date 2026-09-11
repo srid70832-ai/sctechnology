@@ -89,6 +89,8 @@ export interface HackathonItem {
   problemStatementIds?: string[];
   rounds?: HackathonRound[];
   status: "DRAFT" | "PUBLISHED" | "ONGOING" | "CLOSED";
+  participantsCount?: number;
+  submissionsCount?: number;
   createdAt?: any;
   updatedAt?: any;
   createdBy?: string;
