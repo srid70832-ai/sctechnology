@@ -31,13 +31,13 @@ function LoginForm() {
     return redirectParam && !redirectParam.startsWith("/admin") ? redirectParam : "/dashboard";
   };
 
-  // If already authenticated, redirect immediately
+  // If already authenticated, navigate directly
   useEffect(() => {
     if (user) {
       const target = resolveTarget(user.role);
-      router.replace(target);
+      window.location.href = target;
     }
-  }, [user, router, redirectParam]);
+  }, [user, redirectParam]);
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,10 +49,10 @@ function LoginForm() {
       if (res.success) {
         success("Signed in successfully!");
         if (res.onboardingRequired) {
-          router.replace("/onboarding");
+          window.location.href = "/onboarding";
         } else {
           const target = resolveTarget((res as any).role, (res as any).isAdmin);
-          router.replace(target);
+          window.location.href = target;
         }
       } else {
         error(res.error || "Invalid email or password");
@@ -71,10 +71,10 @@ function LoginForm() {
       if (res.success) {
         success("Signed in with Google successfully!");
         if (res.onboardingRequired) {
-          router.replace("/onboarding");
+          window.location.href = "/onboarding";
         } else {
           const target = resolveTarget((res as any).role, (res as any).isAdmin);
-          router.replace(target);
+          window.location.href = target;
         }
       } else if (res.error) {
         error(res.error);

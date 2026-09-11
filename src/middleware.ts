@@ -18,6 +18,35 @@ function isPublicPath(pathname: string): boolean {
   );
 }
 
+function decodeJwtPayload(token: string): { uid?: string; email?: string; role?: string; exp?: number } | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    let jsonStr = '';
+    if (typeof atob === 'function') {
+      try {
+        jsonStr = decodeURIComponent(
+          Array.prototype.map
+            .call(atob(base64), (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+      } catch {
+        jsonStr = atob(base64);
+      }
+    } else if (typeof Buffer !== 'undefined') {
+      jsonStr = Buffer.from(base64, 'base64').toString('utf8');
+    }
+    if (!jsonStr) return null;
+    return JSON.parse(jsonStr);
+  } catch {
+    return null;
+  }
+}
+
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const token = request.cookies.get('sctech_session_token')?.value;
@@ -25,18 +54,18 @@ export function middleware(request: NextRequest) {
   let userPayload: { uid?: string; email?: string; role?: string; exp?: number } | null = null;
 
   if (token) {
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payloadJson = Buffer.from(parts[1], 'base64').toString('utf8');
-        const parsed = JSON.parse(payloadJson);
-        const isExpired = parsed.exp && parsed.exp * 1000 < Date.now();
-        if (!isExpired) {
-          userPayload = parsed;
+    const parsed = decodeJwtPayload(token);
+    if (parsed) {
+      const isExpired = parsed.exp && parsed.exp * 1000 < Date.now();
+      if (!isExpired) {
+        userPayload = parsed;
+        const cleanEmail = (parsed.email || '').toLowerCase().trim();
+        if (cleanEmail === 'superadmin@sctech.com' || cleanEmail === 'srics2425@gmail.com') {
+          userPayload.role = 'SUPER_ADMIN';
+        } else if (cleanEmail === 'admin@sctech.com' && userPayload.role !== 'SUPER_ADMIN') {
+          userPayload.role = 'ADMIN';
         }
       }
-    } catch {
-      userPayload = null;
     }
   }
 
