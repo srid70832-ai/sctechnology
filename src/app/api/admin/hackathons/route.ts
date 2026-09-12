@@ -209,11 +209,14 @@ export async function POST(req: Request) {
 
     const firestore = getAdminDb();
     if (!firestore) {
-      return NextResponse.json({ error: "Firebase Admin SDK is not configured." }, { status: 503 });
+      return NextResponse.json({ error: "Firebase Admin SDK is not configured for project scmain-b2cde." }, { status: 503 });
     }
 
-    const docRef = id ? firestore.collection("hackathons").doc(String(id)) : firestore.collection("hackathons").doc();
-    await docRef.set(canonicalData, { merge: true });
+    const collectionRef = firestore.collection("hackathons");
+    const docRef = id ? collectionRef.doc(String(id)) : await collectionRef.add(canonicalData);
+    if (id) {
+      await docRef.set(canonicalData, { merge: true });
+    }
     const verifiedSnapshot = await docRef.get();
     if (!verifiedSnapshot.exists) {
       return NextResponse.json({ error: "Firestore write could not be verified." }, { status: 500 });
@@ -221,6 +224,7 @@ export async function POST(req: Request) {
 
     const finalResult: any = { id: verifiedSnapshot.id, ...verifiedSnapshot.data() };
 
+    console.log(`[FIRESTORE_HACKATHON_WRITE] projectId=scmain-b2cde database=(default) collection=hackathons documentId=${verifiedSnapshot.id}`);
     console.log(`[ADMIN_HACKATHONS] Write & Read-back succeeded for hackathon ID: ${finalResult.id}, Title: ${finalResult.title}, Status: ${finalResult.status}`);
 
     return NextResponse.json({

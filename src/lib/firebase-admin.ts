@@ -3,10 +3,20 @@ import { getAuth, Auth, DecodedIdToken } from "firebase-admin/auth";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
 import jwt from "jsonwebtoken";
 
-const projectId = 
-  process.env.FIREBASE_PROJECT_ID || 
-  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 
-  "scmain-b2cde";
+const REQUIRED_FIREBASE_PROJECT_ID = "scmain-b2cde";
+
+function getAdminProjectId(): string | null {
+  const configuredProjectId = process.env.FIREBASE_PROJECT_ID?.trim();
+  if (!configuredProjectId) {
+    console.error("[FIREBASE_ADMIN] Missing FIREBASE_PROJECT_ID; expected scmain-b2cde.");
+    return null;
+  }
+  if (configuredProjectId !== REQUIRED_FIREBASE_PROJECT_ID) {
+    console.error(`[FIREBASE_ADMIN] Refusing unexpected Firebase project: ${configuredProjectId}`);
+    return null;
+  }
+  return configuredProjectId;
+}
 
 function normalizePrivateKey(value: string): string {
   let key = value.trim();
@@ -19,13 +29,20 @@ function normalizePrivateKey(value: string): string {
 function getAdminApp(): App | null {
   try {
     if (getApps().length > 0) {
-      return getApp();
+      const existingApp = getApp();
+      if (existingApp.options.projectId !== REQUIRED_FIREBASE_PROJECT_ID) {
+        console.error(`[FIREBASE_ADMIN] Refusing initialized app for unexpected project: ${existingApp.options.projectId || "unknown"}`);
+        return null;
+      }
+      return existingApp;
     }
 
+    const projectId = getAdminProjectId();
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();
     const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
-    if (!clientEmail || !privateKey) {
+    if (!projectId || !clientEmail || !privateKey) {
+      console.error(`[FIREBASE_ADMIN] Missing Admin SDK configuration for project ${REQUIRED_FIREBASE_PROJECT_ID}. Required variables: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY.`);
       return null;
     }
 
@@ -38,7 +55,7 @@ function getAdminApp(): App | null {
       projectId,
     });
   } catch (err) {
-    console.warn("[AUTH] Firebase Admin initialization notice:", err instanceof Error ? err.message : "Unknown error");
+    console.error("[FIREBASE_ADMIN] Initialization failed:", err instanceof Error ? err.message : "Unknown error");
     return null;
   }
 }
