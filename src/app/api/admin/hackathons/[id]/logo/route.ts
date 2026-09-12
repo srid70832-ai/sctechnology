@@ -31,6 +31,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "Firebase Admin Storage is not configured." }, { status: 503 });
     }
 
+    const bucket = adminStorage.bucket();
+    const [bucketExists] = await bucket.exists();
+    if (!bucketExists) {
+      console.error(`[FIREBASE_STORAGE] Bucket does not exist: ${bucket.name}`);
+      return NextResponse.json({
+        error: `Firebase Storage bucket "${bucket.name}" does not exist. Enable Firebase Storage for project scmain-b2cde before uploading logos.`,
+      }, { status: 503 });
+    }
+
     const docRef = db.collection("hackathons").doc(params.id);
     const existingSnapshot = await docRef.get();
     if (!existingSnapshot.exists) {
@@ -44,7 +53,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
 
     const storagePath = `hackathons/${params.id}/logo/${Date.now()}-${crypto.randomUUID()}.${extensionForType(file.type)}`;
-    const bucket = adminStorage.bucket();
     const storageFile = bucket.file(storagePath);
     const buffer = Buffer.from(await file.arrayBuffer());
     await storageFile.save(buffer, {
@@ -90,6 +98,15 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
       return NextResponse.json({ error: "Firebase Admin Storage is not configured." }, { status: 503 });
     }
 
+    const bucket = adminStorage.bucket();
+    const [bucketExists] = await bucket.exists();
+    if (!bucketExists) {
+      console.error(`[FIREBASE_STORAGE] Bucket does not exist: ${bucket.name}`);
+      return NextResponse.json({
+        error: `Firebase Storage bucket "${bucket.name}" does not exist. Enable Firebase Storage for project scmain-b2cde before removing logos.`,
+      }, { status: 503 });
+    }
+
     const docRef = db.collection("hackathons").doc(params.id);
     const snapshot = await docRef.get();
     if (!snapshot.exists) {
@@ -98,7 +115,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
     const storagePath = snapshot.data()?.logoStoragePath;
     if (storagePath) {
-      await adminStorage.bucket().file(storagePath).delete().catch(() => undefined);
+      await bucket.file(storagePath).delete().catch(() => undefined);
     }
     await docRef.update({ logoUrl: null, logoStoragePath: null, updatedAt: new Date().toISOString() });
     const verifiedSnapshot = await docRef.get();
