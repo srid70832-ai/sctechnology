@@ -66,6 +66,7 @@ export interface HackathonItem {
   title: string;
   slug: string;
   bannerUrl?: string | null;
+  logoUrl?: string | null;
   shortDescription: string;
   fullDescription: string;
   startDate: string;

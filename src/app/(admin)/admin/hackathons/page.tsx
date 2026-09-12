@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { 
   Trophy, 
@@ -25,6 +25,7 @@ import {
   Sparkles,
   AlertTriangle,
   RefreshCw
+  ,Image as ImageIcon, Upload, X
 } from "lucide-react";
 import { useToast } from "@/components/providers/ToastProvider";
 import { HackathonItem, HackathonRound, formatISTDate } from "@/lib/platform-models";
@@ -46,10 +47,15 @@ export default function AdminHackathonsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingHackathon, setEditingHackathon] = useState<HackathonItem | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [removeLogo, setRemoveLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     title: "",
     bannerUrl: "",
+    logoUrl: null as string | null,
     shortDescription: "",
     fullDescription: "",
     startDate: "",
@@ -127,6 +133,7 @@ export default function AdminHackathonsPage() {
     setFormData({
       title: "",
       bannerUrl: "",
+      logoUrl: null,
       shortDescription: "",
       fullDescription: "",
       startDate: "",
@@ -166,6 +173,9 @@ export default function AdminHackathonsPage() {
       ],
       status: "PUBLISHED",
     });
+    setLogoFile(null);
+    setLogoPreview(null);
+    setRemoveLogo(false);
     setModalOpen(true);
   };
 
@@ -174,6 +184,7 @@ export default function AdminHackathonsPage() {
     setFormData({
       title: h.title,
       bannerUrl: h.bannerUrl || "",
+      logoUrl: h.logoUrl || null,
       shortDescription: h.shortDescription,
       fullDescription: h.fullDescription || h.shortDescription,
       startDate: h.startDate ? h.startDate.split("T")[0] : "",
@@ -213,7 +224,29 @@ export default function AdminHackathonsPage() {
       ],
       status: h.status || "PUBLISHED",
     });
+    setLogoFile(null);
+    setLogoPreview(h.logoUrl || null);
+    setRemoveLogo(false);
     setModalOpen(true);
+  };
+
+  const handleLogoChange = (file: File | undefined) => {
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      error("Please upload a PNG, JPG, or WEBP image under 5 MB.");
+      return;
+    }
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+    setRemoveLogo(false);
+  };
+
+  const handleRemoveLogo = () => {
+    if (!confirm("Remove this hackathon logo?")) return;
+    setLogoFile(null);
+    setLogoPreview(null);
+    setRemoveLogo(true);
+    setFormData((current) => ({ ...current, logoUrl: null }));
   };
 
   const addRound = () => {
@@ -313,8 +346,40 @@ export default function AdminHackathonsPage() {
         throw new Error(errData.error || `Failed to save hackathon (HTTP ${res.status})`);
       }
 
+      const savedData = await res.json();
+      const savedId = savedData.hackathon?.id || savedData.hackathonId;
+      if (!savedData.success || !savedId) {
+        throw new Error("Hackathon was not confirmed by Firestore.");
+      }
+
+      if (logoFile) {
+        const logoForm = new FormData();
+        logoForm.append("logo", logoFile);
+        const logoRes = await fetch(`/api/admin/hackathons/${savedId}/logo`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: logoForm,
+        });
+        if (!logoRes.ok) {
+          const logoError = await logoRes.json().catch(() => ({}));
+          throw new Error(logoError.error || "Failed to save hackathon logo.");
+        }
+      } else if (removeLogo && editingHackathon?.logoUrl) {
+        const logoRes = await fetch(`/api/admin/hackathons/${savedId}/logo`, {
+          method: "DELETE",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!logoRes.ok) {
+          const logoError = await logoRes.json().catch(() => ({}));
+          throw new Error(logoError.error || "Failed to remove hackathon logo.");
+        }
+      }
+
       success(editingHackathon ? "Hackathon updated successfully!" : "Hackathon launched and saved successfully!");
       setModalOpen(false);
+      setLogoFile(null);
+      setLogoPreview(null);
+      setRemoveLogo(false);
       await loadData();
     } catch (err: any) {
       console.error("Save hackathon error:", err);
@@ -647,6 +712,56 @@ export default function AdminHackathonsPage() {
                     placeholder="https://.../banner.jpg"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100"
                   />
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-slate-300 font-bold block">Hackathon Logo</label>
+                    <p className="text-[10px] text-slate-500 mt-1">PNG, JPG, WEBP • Recommended 512×512</p>
+                  </div>
+                  <ImageIcon className="w-4 h-4 text-amber-400" />
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  <div className="w-28 h-28 aspect-square rounded-2xl border border-slate-700 bg-slate-900 overflow-hidden flex items-center justify-center shadow-lg shadow-blue-500/5">
+                    {logoPreview ? (
+                      <img src={logoPreview} alt="Hackathon logo preview" className="w-full h-full object-contain" />
+                    ) : (
+                      <div className="text-center text-slate-500 space-y-1">
+                        <Trophy className="w-8 h-8 mx-auto text-amber-400/70" />
+                        <span className="block text-[10px] font-semibold">Upload Hackathon Logo</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(event) => handleLogoChange(event.target.files?.[0])}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => logoInputRef.current?.click()}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-300 font-bold hover:bg-blue-600/30"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      {logoPreview ? "Replace" : "Upload Logo"}
+                    </button>
+                    {logoPreview && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveLogo}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-rose-600/15 border border-rose-500/30 text-rose-300 font-bold hover:bg-rose-600/25"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 

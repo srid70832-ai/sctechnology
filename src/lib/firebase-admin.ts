@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp, App, cert } from "firebase-admin/app";
 import { getAuth, Auth, DecodedIdToken } from "firebase-admin/auth";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
+import { getStorage, Storage } from "firebase-admin/storage";
 import jwt from "jsonwebtoken";
 
 const REQUIRED_FIREBASE_PROJECT_ID = "scmain-b2cde";
@@ -63,6 +64,7 @@ function getAdminApp(): App | null {
         privateKey: normalizedPrivateKey,
       }),
       projectId,
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
     });
   } catch (err) {
     console.error("[FIREBASE_ADMIN] Initialization failed:", err instanceof Error ? err.message : "Unknown error");
@@ -87,6 +89,16 @@ export function getAdminDb(): Firestore | null {
     if (adminApp) return getFirestore(adminApp);
     const app = getAdminApp();
     return app ? getFirestore(app) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getAdminStorage(): Storage | null {
+  try {
+    if (adminApp) return getStorage(adminApp);
+    const app = getAdminApp();
+    return app ? getStorage(app) : null;
   } catch {
     return null;
   }

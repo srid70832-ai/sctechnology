@@ -87,6 +87,7 @@ export async function GET() {
         judgingCriteria: parsedJudgingCriteria,
         faqs: parsedFaqs,
         bannerUrl: h.bannerUrl || null,
+        logoUrl: h.logoUrl || null,
         status: h.status || "PUBLISHED",
         participantsCount: h._count?.registrations || h.participantsCount || 0,
         submissionsCount: h._count?.submissions || h.submissionsCount || 0,

@@ -68,6 +68,7 @@ export async function GET(req: Request) {
         title: p.title || "Untitled Hackathon",
         slug: p.slug || p.id,
         bannerUrl: p.bannerUrl || null,
+        logoUrl: p.logoUrl || null,
         shortDescription: p.shortDescription || p.tagLine || p.description || "",
         fullDescription: p.fullDescription || p.description || p.shortDescription || "",
         startDate: toISOStringSafe(p.startDate),

@@ -526,6 +526,13 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
         <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-[#0F172A] to-[#0B0F19] border border-blue-500/30 shadow-2xl space-y-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
             <div className="space-y-1.5">
+              <div className="w-24 h-24 rounded-2xl border border-blue-500/30 bg-slate-950/70 overflow-hidden flex items-center justify-center shadow-lg shadow-blue-500/10">
+                {hackathon.logoUrl ? (
+                  <img src={hackathon.logoUrl} alt={`${hackathon.title} logo`} className="w-full h-full object-contain" />
+                ) : (
+                  <Trophy className="w-10 h-10 text-amber-400/70" />
+                )}
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-bold uppercase tracking-wider border border-blue-500/30">
                   <Trophy className="w-3 h-3 text-amber-400" />

@@ -125,6 +125,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         tagLine: firestoreHackathon.tagLine || firestoreHackathon.shortDescription,
         description: firestoreHackathon.fullDescription || firestoreHackathon.shortDescription,
         bannerUrl: firestoreHackathon.bannerUrl || null,
+        logoUrl: firestoreHackathon.logoUrl || null,
         entryFee,
         prizePool: firestoreHackathon.prizePool ?? 50000,
         startDate: toISOStringSafe(firestoreHackathon.startDate),

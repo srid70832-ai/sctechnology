@@ -72,6 +72,7 @@ export default function HackathonsListPage() {
   const normalizedInternal = internalHackathons.map((h) => ({
     id: h.id,
     title: h.title,
+    logoUrl: h.logoUrl || null,
     organizer: "SC TECH Official",
     sourceType: "INTERNAL",
     sourceName: "SC TECH Official",
@@ -91,6 +92,7 @@ export default function HackathonsListPage() {
   const normalizedExternal = externalHackathons.map((h) => ({
     id: h.id,
     title: h.title,
+    logoUrl: null,
     organizer: h.company,
     sourceType: "EXTERNAL",
     sourceName: h.sourceName,
@@ -256,6 +258,14 @@ export default function HackathonsListPage() {
                     <span className="text-xs text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded-md">
                       {item.mode}
                     </span>
+                  </div>
+
+                  <div className="w-16 h-16 mb-4 rounded-2xl border border-slate-700/80 bg-slate-950/80 overflow-hidden flex items-center justify-center">
+                    {item.logoUrl ? (
+                      <img src={item.logoUrl} alt={`${item.title} logo`} className="w-full h-full object-contain" />
+                    ) : (
+                      <Trophy className="w-7 h-7 text-amber-400/70" />
+                    )}
                   </div>
 
                   {/* Title & Organizer */}
