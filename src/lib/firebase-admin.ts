@@ -18,12 +18,19 @@ function getAdminProjectId(): string | null {
   return configuredProjectId;
 }
 
-function normalizePrivateKey(value: string): string {
-  let key = value.trim();
-  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
-    key = key.substring(1, key.length - 1);
+function normalizePrivateKey(rawPrivateKey: string | undefined): string {
+  const privateKey = rawPrivateKey
+    ?.trim()
+    .replace(/^"([\s\S]*)"$/, "$1")
+    .replace(/^'([\s\S]*)'$/, "$1")
+    .replace(/\\n/g, "\n");
+
+  if (!privateKey?.includes("-----BEGIN PRIVATE KEY-----") ||
+      !privateKey.includes("-----END PRIVATE KEY-----")) {
+    throw new Error("FIREBASE_PRIVATE_KEY is not valid PEM format");
   }
-  return key.includes("\\n") ? key.replace(/\\n/g, "\n") : key;
+
+  return privateKey;
 }
 
 function getAdminApp(): App | null {
@@ -46,11 +53,14 @@ function getAdminApp(): App | null {
       return null;
     }
 
+    const normalizedPrivateKey = normalizePrivateKey(privateKey);
+    console.log(`[FIREBASE_ADMIN] projectIdConfigured=${projectId === REQUIRED_FIREBASE_PROJECT_ID} clientEmailConfigured=${Boolean(clientEmail)} privateKeyConfigured=${Boolean(privateKey)} privateKeyPemValid=${Boolean(normalizedPrivateKey)}`);
+
     return initializeApp({
       credential: cert({
         projectId,
         clientEmail,
-        privateKey: normalizePrivateKey(privateKey),
+        privateKey: normalizedPrivateKey,
       }),
       projectId,
     });
