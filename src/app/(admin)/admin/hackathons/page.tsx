@@ -300,7 +300,7 @@ export default function AdminHackathonsPage() {
       };
 
       const res = await fetch("/api/admin/hackathons", {
-        method: "POST",
+        method: editingHackathon ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),

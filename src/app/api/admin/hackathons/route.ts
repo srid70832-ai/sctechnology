@@ -103,7 +103,7 @@ export async function GET(req: Request) {
       success: true, 
       count: hackathons.length, 
       hackathons 
-    });
+    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error: any) {
     console.error("Admin GET Hackathons Error:", error);
     return NextResponse.json({ error: error?.message || "Failed to fetch hackathons" }, { status: 500 });
@@ -202,7 +202,6 @@ export async function POST(req: Request) {
       rounds: parsedRounds,
       status: status || "PUBLISHED",
       updatedAt: new Date().toISOString(),
-      createdAt: body.createdAt ? toISOStringSafe(body.createdAt) : new Date().toISOString(),
       participantsCount: Number(body.participantsCount) || 0,
       submissionsCount: Number(body.submissionsCount) || 0,
     });
@@ -213,9 +212,23 @@ export async function POST(req: Request) {
     }
 
     const collectionRef = firestore.collection("hackathons");
-    const docRef = id ? collectionRef.doc(String(id)) : await collectionRef.add(canonicalData);
+    let docRef;
     if (id) {
-      await docRef.set(canonicalData, { merge: true });
+      docRef = collectionRef.doc(String(id));
+      const existingSnapshot = await docRef.get();
+      if (!existingSnapshot.exists) {
+        return NextResponse.json({ error: "Hackathon document not found in Firestore." }, { status: 404 });
+      }
+      const existingData = existingSnapshot.data() || {};
+      await docRef.update(removeUndefinedValues({
+        ...canonicalData,
+        createdAt: existingData.createdAt || new Date().toISOString(),
+      }));
+    } else {
+      docRef = await collectionRef.add({
+        ...canonicalData,
+        createdAt: body.createdAt ? toISOStringSafe(body.createdAt) : new Date().toISOString(),
+      });
     }
     const verifiedSnapshot = await docRef.get();
     if (!verifiedSnapshot.exists) {
@@ -238,6 +251,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error?.message || "Failed to save hackathon" }, { status: 500 });
   }
 }
+
+export const PUT = POST;
 
 export async function DELETE(req: Request) {
   try {

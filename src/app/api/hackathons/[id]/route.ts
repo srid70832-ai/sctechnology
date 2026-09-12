@@ -7,6 +7,18 @@ import { HackathonTeam, computeTeamPaymentStatus } from "@/lib/hackathon-team-mo
 
 export const dynamic = "force-dynamic";
 
+function toISOStringSafe(value: any): string | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toISOString();
+  }
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  if (typeof value?.toDate === "function") return value.toDate().toISOString();
+  if (typeof value?.seconds === "number") return new Date(value.seconds * 1000).toISOString();
+  return null;
+}
+
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession();
@@ -115,9 +127,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         bannerUrl: firestoreHackathon.bannerUrl || null,
         entryFee,
         prizePool: firestoreHackathon.prizePool ?? 50000,
-        startDate: firestoreHackathon.startDate,
-        endDate: firestoreHackathon.endDate,
-        registrationDeadline: firestoreHackathon.registrationDeadline,
+        startDate: toISOStringSafe(firestoreHackathon.startDate),
+        endDate: toISOStringSafe(firestoreHackathon.endDate),
+        registrationDeadline: toISOStringSafe(firestoreHackathon.registrationDeadline),
         registrationMode: firestoreHackathon.registrationMode || "BOTH",
         minTeamSize: firestoreHackathon.minTeamSize || 2,
         maxTeamSize: firestoreHackathon.maxTeamSize || 4,
@@ -136,7 +148,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         isLeader,
         userMemberPaymentStatus,
       },
-    });
+    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("GET Hackathon ID Error:", error);
     return NextResponse.json({ error: "Failed to fetch hackathon" }, { status: 500 });

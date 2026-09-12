@@ -98,7 +98,10 @@ export async function GET() {
 
     console.log(`[HACKATHONS_PUBLIC] Returned ${formatted.length} published hackathons.`);
 
-    return NextResponse.json({ success: true, count: formatted.length, hackathons: formatted });
+    return NextResponse.json(
+      { success: true, count: formatted.length, hackathons: formatted },
+      { headers: { "Cache-Control": "no-store, max-age=0" } }
+    );
   } catch (error: any) {
     console.error("GET Hackathons Error:", error);
     return NextResponse.json({ error: error?.message || "Failed to fetch hackathons" }, { status: 500 });
