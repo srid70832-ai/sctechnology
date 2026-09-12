@@ -19,6 +19,15 @@ function getAdminProjectId(): string | null {
   return configuredProjectId;
 }
 
+function getAdminStorageBucket(): string | null {
+  const configuredBucket = process.env.FIREBASE_STORAGE_BUCKET?.trim();
+  if (!configuredBucket) {
+    console.error("[FIREBASE_ADMIN] Missing FIREBASE_STORAGE_BUCKET; configure the existing Firebase project bucket.");
+    return null;
+  }
+  return configuredBucket;
+}
+
 function normalizePrivateKey(rawPrivateKey: string | undefined): string {
   const privateKey = rawPrivateKey
     ?.trim()
@@ -46,16 +55,17 @@ function getAdminApp(): App | null {
     }
 
     const projectId = getAdminProjectId();
+    const storageBucket = getAdminStorageBucket();
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();
     const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
-    if (!projectId || !clientEmail || !privateKey) {
-      console.error(`[FIREBASE_ADMIN] Missing Admin SDK configuration for project ${REQUIRED_FIREBASE_PROJECT_ID}. Required variables: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY.`);
+    if (!projectId || !storageBucket || !clientEmail || !privateKey) {
+      console.error(`[FIREBASE_ADMIN] Missing Admin SDK configuration for project ${REQUIRED_FIREBASE_PROJECT_ID}. Required variables: FIREBASE_PROJECT_ID, FIREBASE_STORAGE_BUCKET, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY.`);
       return null;
     }
 
     const normalizedPrivateKey = normalizePrivateKey(privateKey);
-    console.log(`[FIREBASE_ADMIN] projectIdConfigured=${projectId === REQUIRED_FIREBASE_PROJECT_ID} clientEmailConfigured=${Boolean(clientEmail)} privateKeyConfigured=${Boolean(privateKey)} privateKeyPemValid=${Boolean(normalizedPrivateKey)}`);
+    console.log(`[FIREBASE_ADMIN] projectIdConfigured=${projectId === REQUIRED_FIREBASE_PROJECT_ID} storageBucketConfigured=${Boolean(storageBucket)} clientEmailConfigured=${Boolean(clientEmail)} privateKeyConfigured=${Boolean(privateKey)} privateKeyPemValid=${Boolean(normalizedPrivateKey)}`);
 
     return initializeApp({
       credential: cert({
@@ -64,7 +74,7 @@ function getAdminApp(): App | null {
         privateKey: normalizedPrivateKey,
       }),
       projectId,
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
+      storageBucket,
     });
   } catch (err) {
     console.error("[FIREBASE_ADMIN] Initialization failed:", err instanceof Error ? err.message : "Unknown error");
