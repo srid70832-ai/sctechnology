@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { getServerSession } from "@/lib/auth";
-import { db } from "@/lib/firebase";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { getDocs, collection } from "firebase/firestore";
 
 export const dynamic = "force-dynamic";
 
@@ -47,57 +43,17 @@ function parseArraySafe(input: any): any[] {
 
 export async function GET() {
   try {
-    const rawDocsMap = new Map<string, any>();
-
-    // 1. Fetch from Firestore Admin SDK
-    try {
-      const adminDb = getAdminDb();
-      if (adminDb) {
-        const snap = await adminDb.collection("hackathons").get();
-        snap.forEach((docSnap) => {
-          rawDocsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-        });
-      }
-    } catch (adminErr) {
-      console.warn("[HACKATHONS_PUBLIC] Admin Firestore get notice:", adminErr);
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ error: "Firebase Admin SDK is not configured." }, { status: 503 });
     }
 
-    // 2. Fetch from Firestore Client SDK
-    try {
-      const hSnap = await getDocs(collection(db, "hackathons"));
-      hSnap.forEach((d) => {
-        if (!rawDocsMap.has(d.id)) {
-          rawDocsMap.set(d.id, { id: d.id, ...d.data() });
-        }
-      });
-    } catch (clientErr) {
-      console.warn("[HACKATHONS_PUBLIC] Client Firestore get notice:", clientErr);
-    }
-
-    // 3. Fetch from Prisma Adapter
-    try {
-      const prismaHackathons = await prisma.hackathon.findMany({
-        include: {
-          _count: {
-            select: { registrations: true, submissions: true },
-          },
-        },
-        orderBy: { startDate: "asc" },
-      });
-      (prismaHackathons || []).forEach((p: any) => {
-        if (!rawDocsMap.has(p.id)) {
-          rawDocsMap.set(p.id, p);
-        }
-      });
-    } catch (prismaErr) {
-      console.warn("[HACKATHONS_PUBLIC] Prisma findMany notice:", prismaErr);
-    }
-
-    const allDocs = Array.from(rawDocsMap.values());
+    const snap = await adminDb.collection("hackathons").get();
+    const allDocs: any[] = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
 
     // Filter published or ongoing
     const publishedDocs = allDocs.filter(
-      (h) => h.status === "PUBLISHED" || h.status === "ONGOING" || !h.status
+      (h) => h.status === "PUBLISHED" || h.status === "ONGOING"
     );
 
     const formatted = publishedDocs.map((h: any) => {
@@ -142,47 +98,10 @@ export async function GET() {
 
     console.log(`[HACKATHONS_PUBLIC] Returned ${formatted.length} published hackathons.`);
 
-    return NextResponse.json({ hackathons: formatted });
+    return NextResponse.json({ success: true, count: formatted.length, hackathons: formatted });
   } catch (error: any) {
     console.error("GET Hackathons Error:", error);
     return NextResponse.json({ error: error?.message || "Failed to fetch hackathons" }, { status: 500 });
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    const session = await getServerSession();
-    if (!session || !["ADMIN", "SUPER_ADMIN"].includes(session.role)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
-
-    const body = await req.json();
-    const slug = body.title.toLowerCase().replace(/[^a-z0-9]/g, "-") + "-" + Math.floor(1000 + Math.random() * 9000);
-
-    const hackathon = await prisma.hackathon.create({
-      data: {
-        title: body.title,
-        slug,
-        tagLine: body.tagLine || "Code, Innovate, Elevate",
-        description: body.description,
-        problemStatement: body.problemStatement,
-        problemPublished: body.problemPublished ?? true,
-        entryFee: Number(body.entryFee) || 35,
-        prizePool: Number(body.prizePool) || 50000,
-        startDate: toISOStringSafe(body.startDate),
-        endDate: toISOStringSafe(body.endDate),
-        registrationDeadline: toISOStringSafe(body.registrationDeadline),
-        rules: JSON.stringify(body.rules || []),
-        judgingCriteria: JSON.stringify(body.judgingCriteria || []),
-        faqs: JSON.stringify(body.faqs || []),
-        bannerUrl: body.bannerUrl,
-      },
-    });
-
-    return NextResponse.json({ success: true, hackathon }, { status: 201 });
-  } catch (error: any) {
-    console.error("POST Hackathon Error:", error);
-    return NextResponse.json({ error: error?.message || "Failed to create hackathon" }, { status: 500 });
   }
 }
 

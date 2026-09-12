@@ -93,11 +93,10 @@ export default function AdminHackathonsPage() {
       }
 
       const data = await res.json();
-      if (Array.isArray(data.hackathons)) {
-        setHackathons(data.hackathons);
-      } else {
-        setHackathons([]);
+      if (!data || !Array.isArray(data.hackathons)) {
+        throw new Error("The hackathon API returned an invalid response.");
       }
+      setHackathons(data.hackathons);
 
       // Load problem statements for linking
       try {
@@ -268,10 +267,9 @@ export default function AdminHackathonsPage() {
     try {
       const token = (await firebaseUser?.getIdToken()) || (await auth.currentUser?.getIdToken());
       const hackathonSlug = editingHackathon?.slug || formData.title.toLowerCase().replace(/[^a-z0-9]/g, "-") + "-" + Date.now().toString().slice(-4);
-      const hackathonId = editingHackathon?.id || `hack-${hackathonSlug}`;
 
       const payload = {
-        id: hackathonId,
+        ...(editingHackathon ? { id: editingHackathon.id } : {}),
         title: formData.title.trim(),
         slug: hackathonSlug,
         bannerUrl: formData.bannerUrl || null,

@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { HackathonItem, slugify } from "@/lib/platform-models";
-import { prisma } from "@/lib/prisma";
-import { db } from "@/lib/firebase";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
-import { doc, getDoc, setDoc, deleteDoc, getDocs, collection, serverTimestamp } from "firebase/firestore";
+import { removeUndefinedValues } from "@/lib/firestore";
 
 export const dynamic = "force-dynamic";
 
@@ -52,51 +49,13 @@ export async function GET(req: Request) {
     const { authorized, errorResponse } = await requireAdmin(req);
     if (!authorized) return errorResponse;
 
-    const rawDocsMap = new Map<string, any>();
-
-    // 1. Fetch from Firestore Admin SDK if available
-    try {
-      const adminDb = getAdminDb();
-      if (adminDb) {
-        const snap = await adminDb.collection("hackathons").get();
-        snap.forEach((docSnap) => {
-          rawDocsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-        });
-      }
-    } catch (adminErr) {
-      console.warn("[ADMIN_HACKATHONS] Admin Firestore get notice:", adminErr);
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ error: "Firebase Admin SDK is not configured." }, { status: 503 });
     }
 
-    // 2. Fetch from Firestore Client SDK
-    try {
-      const hSnap = await getDocs(collection(db, "hackathons"));
-      hSnap.forEach((d) => {
-        if (!rawDocsMap.has(d.id)) {
-          rawDocsMap.set(d.id, { id: d.id, ...d.data() });
-        }
-      });
-    } catch (clientErr) {
-      console.warn("[ADMIN_HACKATHONS] Client Firestore get notice:", clientErr);
-    }
-
-    // 3. Fetch from Prisma Adapter
-    try {
-      const prismaHackathons = await prisma.hackathon.findMany({
-        include: {
-          _count: { select: { registrations: true, submissions: true } }
-        },
-        orderBy: { createdAt: "desc" },
-      });
-      (prismaHackathons || []).forEach((p: any) => {
-        if (!rawDocsMap.has(p.id)) {
-          rawDocsMap.set(p.id, p);
-        }
-      });
-    } catch (prismaErr) {
-      console.warn("[ADMIN_HACKATHONS] Prisma findMany notice:", prismaErr);
-    }
-
-    const allDocs = Array.from(rawDocsMap.values());
+    const snap = await adminDb.collection("hackathons").get();
+    const allDocs = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
 
     const hackathons: HackathonItem[] = allDocs.map((p: any) => {
       const parsedRules = parseArraySafe(p.rules);
@@ -140,7 +99,7 @@ export async function GET(req: Request) {
 
     console.log(`[ADMIN_HACKATHONS] Query complete. Total hackathons returned: ${hackathons.length}`);
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true, 
       count: hackathons.length, 
       hackathons 
@@ -195,7 +154,6 @@ export async function POST(req: Request) {
     }
 
     const hackathonSlug = slug || slugify(title);
-    const hackathonId = id || `hack-${hackathonSlug}-${Date.now().toString().slice(-4)}`;
 
     const toArray = (input: any): string[] => {
       if (Array.isArray(input)) return input.map((s) => String(s).trim()).filter(Boolean);
@@ -216,7 +174,6 @@ export async function POST(req: Request) {
     const parsedRounds = Array.isArray(rounds) ? rounds : [];
 
     const canonicalData = removeUndefinedValues({
-      id: hackathonId,
       title: String(title).trim(),
       slug: hackathonSlug,
       bannerUrl: bannerUrl ? String(bannerUrl).trim() : null,
@@ -250,81 +207,26 @@ export async function POST(req: Request) {
       submissionsCount: Number(body.submissionsCount) || 0,
     });
 
-    let writeSucceeded = false;
-
-    // 1. Write to Firestore Admin SDK if available
-    try {
-      const adminDb = getAdminDb();
-      if (adminDb) {
-        await adminDb.collection("hackathons").doc(hackathonId).set(canonicalData, { merge: true });
-        writeSucceeded = true;
-      }
-    } catch (adminErr) {
-      console.warn("[ADMIN_HACKATHONS] Admin Firestore write notice:", adminErr);
+    const firestore = getAdminDb();
+    if (!firestore) {
+      return NextResponse.json({ error: "Firebase Admin SDK is not configured." }, { status: 503 });
     }
 
-    // 2. Write to Firestore Client SDK
-    try {
-      const docRef = doc(db, "hackathons", hackathonId);
-      await setDoc(docRef, canonicalData, { merge: true });
-      writeSucceeded = true;
-    } catch (clientErr) {
-      console.warn("[ADMIN_HACKATHONS] Client Firestore write notice:", clientErr);
+    const docRef = id ? firestore.collection("hackathons").doc(String(id)) : firestore.collection("hackathons").doc();
+    await docRef.set(canonicalData, { merge: true });
+    const verifiedSnapshot = await docRef.get();
+    if (!verifiedSnapshot.exists) {
+      return NextResponse.json({ error: "Firestore write could not be verified." }, { status: 500 });
     }
 
-    // 3. Write to Prisma Adapter
-    try {
-      await prisma.hackathon.upsert({
-        where: { id: hackathonId },
-        update: canonicalData,
-        create: canonicalData,
-      });
-      writeSucceeded = true;
-    } catch (prismaErr) {
-      console.warn("[ADMIN_HACKATHONS] Prisma upsert notice:", prismaErr);
-    }
+    const finalResult: any = { id: verifiedSnapshot.id, ...verifiedSnapshot.data() };
 
-    // 4. Mandatory Read-Back Verification
-    let verifiedDoc: any = null;
-
-    try {
-      const adminDb = getAdminDb();
-      if (adminDb) {
-        const snap = await adminDb.collection("hackathons").doc(hackathonId).get();
-        if (snap.exists) {
-          verifiedDoc = { id: snap.id, ...snap.data() };
-        }
-      }
-    } catch {}
-
-    if (!verifiedDoc) {
-      try {
-        const snap = await getDoc(doc(db, "hackathons", hackathonId));
-        if (snap.exists()) {
-          verifiedDoc = { id: snap.id, ...snap.data() };
-        }
-      } catch {}
-    }
-
-    if (!verifiedDoc) {
-      try {
-        verifiedDoc = await prisma.hackathon.findUnique({ where: { id: hackathonId } });
-      } catch {}
-    }
-
-    if (!verifiedDoc && !writeSucceeded) {
-      console.error("[ADMIN_HACKATHONS] Read-back verification failed for document ID:", hackathonId);
-      return NextResponse.json({ error: "Failed to persist hackathon document to Firestore." }, { status: 500 });
-    }
-
-    const finalResult = verifiedDoc || canonicalData;
-
-    console.log(`[ADMIN_HACKATHONS] Write & Read-back succeeded for hackathon ID: ${hackathonId}, Title: ${finalResult.title}, Status: ${finalResult.status}`);
+    console.log(`[ADMIN_HACKATHONS] Write & Read-back succeeded for hackathon ID: ${finalResult.id}, Title: ${finalResult.title}, Status: ${finalResult.status}`);
 
     return NextResponse.json({
       success: true,
       message: "Hackathon saved successfully.",
-      hackathonId: finalResult.id || hackathonId,
+      hackathonId: finalResult.id,
       hackathon: finalResult,
     });
   } catch (error: any) {
@@ -351,27 +253,11 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Hackathon ID is required for deletion." }, { status: 400 });
     }
 
-    // 1. Delete from Firestore Admin
-    try {
-      const adminDb = getAdminDb();
-      if (adminDb) {
-        await adminDb.collection("hackathons").doc(id).delete();
-      }
-    } catch {}
-
-    // 2. Delete from Firestore Client
-    try {
-      await deleteDoc(doc(db, "hackathons", id));
-    } catch {}
-
-    // 3. Delete from Prisma Adapter
-    try {
-      await prisma.hackathon.deleteMany({
-        where: {
-          OR: [{ id }, { slug: id }],
-        },
-      });
-    } catch {}
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ error: "Firebase Admin SDK is not configured." }, { status: 503 });
+    }
+    await adminDb.collection("hackathons").doc(id).delete();
 
     return NextResponse.json({ success: true, message: "Hackathon deleted successfully." });
   } catch (error: any) {

@@ -25,28 +25,25 @@ export default function HackathonsListPage() {
   const [internalHackathons, setInternalHackathons] = useState<any[]>([]);
   const [externalHackathons, setExternalHackathons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"ALL" | "INTERNAL" | "EXTERNAL" | "REMOTE">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
   const loadHackathons = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      let publishedList: any[] = [];
-
       // 1. Fetch Internal Hackathons from Public Hackathons API (Backed securely by Firebase Admin SDK)
-      try {
-        const res = await fetch("/api/hackathons", { cache: "no-store" });
-        if (res.ok) {
-          const data = await res.json();
-          publishedList = (data.hackathons || []).filter(
-            (h: any) => h.status === "PUBLISHED" || h.status === "ONGOING"
-          );
-        }
-      } catch (apiErr) {
-        console.warn("API hackathons load notice:", apiErr);
+      const res = await fetch("/api/hackathons", { cache: "no-store" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Hackathon API failed (${res.status})`);
       }
-
-      setInternalHackathons(publishedList);
+      const data = await res.json();
+      if (!Array.isArray(data.hackathons)) {
+        throw new Error("The hackathon API returned an invalid response.");
+      }
+      setInternalHackathons(data.hackathons);
 
       // 2. Fetch External Hackathons from Opportunities API
       try {
@@ -58,8 +55,10 @@ export default function HackathonsListPage() {
       } catch (oppErr) {
         console.warn("Opportunities API notice:", oppErr);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error loading hackathons:", err);
+      setInternalHackathons([]);
+      setLoadError(err?.message || "Failed to load hackathons");
     } finally {
       setLoading(false);
     }
@@ -216,6 +215,13 @@ export default function HackathonsListPage() {
           <div className="py-24 flex flex-col items-center justify-center text-slate-500">
             <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
             <p className="text-sm font-medium">Scanning hackathon discovery feeds...</p>
+          </div>
+        ) : loadError ? (
+          <div className="py-20 text-center border border-rose-500/30 rounded-2xl p-8">
+            <Trophy className="w-12 h-12 text-rose-400 mx-auto mb-3 opacity-70" />
+            <h3 className="text-base font-semibold text-white">Unable to load hackathons</h3>
+            <p className="text-xs text-rose-300 mt-1">{loadError}</p>
+            <button onClick={loadHackathons} className="mt-4 px-4 py-2 rounded-lg bg-rose-600 text-xs font-semibold">Retry</button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-20 text-center border border-dashed border-slate-800 rounded-2xl p-8">

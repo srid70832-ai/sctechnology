@@ -52,6 +52,7 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
 
   const [hackathon, setHackathon] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "problem" | "rules" | "judging" | "team" | "submit">("overview");
   
   // Registration Modal state
@@ -105,24 +106,30 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
   }, [user]);
 
   const fetchDetail = async () => {
+    setLoadError(null);
     try {
       const res = await fetch(`/api/hackathons/${params.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setHackathon(data.hackathon);
-        if (data.hackathon.userSubmission) {
-          setProjectName(data.hackathon.userSubmission.projectName || "");
-          setRepoUrl(data.hackathon.userSubmission.repoUrl || "");
-          setLiveUrl(data.hackathon.userSubmission.liveUrl || "");
-          setVideoUrl(data.hackathon.userSubmission.videoUrl || "");
-          setDescription(data.hackathon.userSubmission.description || "");
-          if (Array.isArray(data.hackathon.userSubmission.techStack)) {
-            setTechStack(data.hackathon.userSubmission.techStack.join(", "));
-          }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `Hackathon API failed (${res.status})`);
+      }
+      if (!data.hackathon) {
+        throw new Error("The hackathon API returned an invalid response.");
+      }
+      setHackathon(data.hackathon);
+      if (data.hackathon.userSubmission) {
+        setProjectName(data.hackathon.userSubmission.projectName || "");
+        setRepoUrl(data.hackathon.userSubmission.repoUrl || "");
+        setLiveUrl(data.hackathon.userSubmission.liveUrl || "");
+        setVideoUrl(data.hackathon.userSubmission.videoUrl || "");
+        setDescription(data.hackathon.userSubmission.description || "");
+        if (Array.isArray(data.hackathon.userSubmission.techStack)) {
+          setTechStack(data.hackathon.userSubmission.techStack.join(", "));
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setLoadError(err?.message || "Failed to load hackathon");
     } finally {
       setLoading(false);
     }
@@ -461,7 +468,8 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
       <div className="min-h-screen flex flex-col bg-[#0B0F19]">
         <Navbar />
         <main className="flex-1 max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
-          <h2 className="text-xl font-bold text-white">Hackathon Not Found</h2>
+          <h2 className="text-xl font-bold text-white">{loadError ? "Unable to Load Hackathon" : "Hackathon Not Found"}</h2>
+          {loadError && <p className="text-sm text-rose-300">{loadError}</p>}
           <Link href="/hackathons" className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold">
             Back to Hackathons
           </Link>
