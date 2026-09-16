@@ -1,16 +1,4 @@
-import { db } from "./firebase";
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  updateDoc, 
-  query, 
-  where, 
-  orderBy, 
-  serverTimestamp 
-} from "firebase/firestore";
+import { getAdminDb } from "./firebase-admin";
 import { removeUndefinedValues } from "./firestore";
 import { 
   IdeaSubmission, 
@@ -25,16 +13,26 @@ import {
 const IDEAS_COLLECTION = "scIdeaLinkIdeas";
 const CONNECTIONS_COLLECTION = "scIdeaLinkConnections";
 
-// Global persistent state cache for high-velocity & failover persistence
-const g = globalThis as unknown as {
-  _scIdeaLinkIdeas?: Map<string, IdeaSubmission>;
-  _scIdeaLinkConnections?: Map<string, ConnectionRequest>;
-};
-if (!g._scIdeaLinkIdeas) g._scIdeaLinkIdeas = new Map<string, IdeaSubmission>();
-if (!g._scIdeaLinkConnections) g._scIdeaLinkConnections = new Map<string, ConnectionRequest>();
+function ideasCollection() {
+  const adminDb = getAdminDb();
+  if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+  return adminDb.collection(IDEAS_COLLECTION);
+}
 
-const memoryIdeasMap = g._scIdeaLinkIdeas;
-const memoryConnectionsMap = g._scIdeaLinkConnections;
+function connectionsCollection() {
+  const adminDb = getAdminDb();
+  if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+  return adminDb.collection(CONNECTIONS_COLLECTION);
+}
+
+function serializeFirestoreValue(value: any): any {
+  if (value && typeof value.toDate === "function") return value.toDate().toISOString();
+  if (Array.isArray(value)) return value.map(serializeFirestoreValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, serializeFirestoreValue(item)]));
+  }
+  return value;
+}
 
 export async function submitIdea(params: {
   studentId: string;
@@ -91,15 +89,8 @@ export async function submitIdea(params: {
     updatedAt: now,
   };
 
-  memoryIdeasMap.set(ideaId, newIdea);
-
-  try {
-    const docRef = doc(db, IDEAS_COLLECTION, ideaId);
-    const cleaned = removeUndefinedValues(newIdea);
-    await setDoc(docRef, cleaned);
-  } catch (err) {
-    console.warn("Firestore save failed for idea, stored in memory cache:", err);
-  }
+  const cleaned = removeUndefinedValues(newIdea);
+  await ideasCollection().doc(ideaId).set(cleaned);
 
   return { success: true, idea: newIdea };
 }
@@ -107,24 +98,11 @@ export async function submitIdea(params: {
 export async function getStudentIdeas(studentId: string): Promise<IdeaSubmission[]> {
   const result: IdeaSubmission[] = [];
   try {
-    const q = query(collection(db, IDEAS_COLLECTION), where("studentId", "==", studentId));
-    const snap = await getDocs(q);
-    snap.forEach((d) => {
-      const item = d.data() as IdeaSubmission;
-      memoryIdeasMap.set(item.id, item);
-      result.push(item);
-    });
+    const snap = await ideasCollection().where("studentId", "==", studentId).get();
+    snap.forEach((d) => result.push(serializeFirestoreValue({ id: d.id, ...d.data() }) as IdeaSubmission));
   } catch (err) {
-    console.warn("Firestore query failed, using memory cache:", err);
-  }
-
-  // Merge with memory cache
-  const cachedIdeas = Array.from(memoryIdeasMap.values());
-  for (let i = 0; i < cachedIdeas.length; i++) {
-    const idea = cachedIdeas[i];
-    if (idea.studentId === studentId && !result.some((r) => r.id === idea.id)) {
-      result.push(idea);
-    }
+    console.error("Firestore student ideas query failed:", err);
+    throw err;
   }
 
   result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -132,21 +110,16 @@ export async function getStudentIdeas(studentId: string): Promise<IdeaSubmission
 }
 
 export async function getIdeaById(ideaId: string): Promise<IdeaSubmission | null> {
-  if (memoryIdeasMap.has(ideaId)) {
-    return memoryIdeasMap.get(ideaId)!;
-  }
   try {
-    const docRef = doc(db, IDEAS_COLLECTION, ideaId);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const item = snap.data() as IdeaSubmission;
-      memoryIdeasMap.set(item.id, item);
-      return item;
+    const snap = await ideasCollection().doc(ideaId).get();
+    if (snap.exists) {
+      return serializeFirestoreValue({ id: snap.id, ...snap.data() }) as IdeaSubmission;
     }
   } catch (err) {
-    console.warn("Firestore getDoc failed, looking in memory cache:", err);
+    console.error("Firestore idea lookup failed:", err);
+    throw err;
   }
-  return memoryIdeasMap.get(ideaId) || null;
+  return null;
 }
 
 export async function getAllIdeasForAdmin(): Promise<{
@@ -162,22 +135,11 @@ export async function getAllIdeasForAdmin(): Promise<{
 }> {
   const result: IdeaSubmission[] = [];
   try {
-    const snap = await getDocs(collection(db, IDEAS_COLLECTION));
-    snap.forEach((d) => {
-      const item = d.data() as IdeaSubmission;
-      memoryIdeasMap.set(item.id, item);
-      result.push(item);
-    });
+    const snap = await ideasCollection().get();
+    snap.forEach((d) => result.push(serializeFirestoreValue({ id: d.id, ...d.data() }) as IdeaSubmission));
   } catch (err) {
-    console.warn("Firestore getAllIdeas failed, loading memory cache:", err);
-  }
-
-  const cachedIdeas = Array.from(memoryIdeasMap.values());
-  for (let i = 0; i < cachedIdeas.length; i++) {
-    const idea = cachedIdeas[i];
-    if (!result.some((r) => r.id === idea.id)) {
-      result.push(idea);
-    }
+    console.error("Firestore getAllIdeas failed:", err);
+    throw err;
   }
 
   result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -223,15 +185,7 @@ export async function adminReviewIdea(params: {
     details: params.adminNotes || `Idea marked as ${params.decision}.`,
   });
 
-  memoryIdeasMap.set(existing.id, existing);
-
-  try {
-    const docRef = doc(db, IDEAS_COLLECTION, params.ideaId);
-    const cleaned = removeUndefinedValues(existing);
-    await updateDoc(docRef, cleaned as any);
-  } catch (err) {
-    console.warn("Firestore updateDoc failed, updated memory cache:", err);
-  }
+  await ideasCollection().doc(params.ideaId).set(removeUndefinedValues(existing), { merge: true });
 
   return existing;
 }
@@ -273,15 +227,7 @@ export async function saveAiAnalysisToIdea(
     details: `Discovered ${analysisData.generatedMatches.length} authentic company/ecosystem synergy matches.`,
   });
 
-  memoryIdeasMap.set(existing.id, existing);
-
-  try {
-    const docRef = doc(db, IDEAS_COLLECTION, ideaId);
-    const cleaned = removeUndefinedValues(existing);
-    await updateDoc(docRef, cleaned as any);
-  } catch (err) {
-    console.warn("Firestore updateDoc failed for AI analysis, saved to memory cache:", err);
-  }
+  await ideasCollection().doc(ideaId).set(removeUndefinedValues(existing), { merge: true });
 
   return existing;
 }
@@ -321,15 +267,7 @@ export async function adminShareCompanyMatches(params: {
     details: `Approved and shared ${approvedWithNotes.length} verified company matches with student.`,
   });
 
-  memoryIdeasMap.set(existing.id, existing);
-
-  try {
-    const docRef = doc(db, IDEAS_COLLECTION, params.ideaId);
-    const cleaned = removeUndefinedValues(existing);
-    await updateDoc(docRef, cleaned as any);
-  } catch (err) {
-    console.warn("Firestore updateDoc failed for share matches, saved to memory cache:", err);
-  }
+  await ideasCollection().doc(params.ideaId).set(removeUndefinedValues(existing), { merge: true });
 
   return existing;
 }
@@ -372,15 +310,7 @@ export async function createConnectionRequest(params: {
     updatedAt: now,
   };
 
-  memoryConnectionsMap.set(connectionId, newConn);
-
-  try {
-    const docRef = doc(db, CONNECTIONS_COLLECTION, connectionId);
-    const cleaned = removeUndefinedValues(newConn);
-    await setDoc(docRef, cleaned);
-  } catch (err) {
-    console.warn("Firestore setDoc failed for connection, saved in memory cache:", err);
-  }
+  await connectionsCollection().doc(connectionId).set(removeUndefinedValues(newConn));
 
   // Also log into Idea audit trail
   try {
@@ -394,12 +324,11 @@ export async function createConnectionRequest(params: {
         details: `Expressed interest in connecting with ${params.companyName}.`,
       });
       idea.updatedAt = now;
-      memoryIdeasMap.set(idea.id, idea);
-      const docRef = doc(db, IDEAS_COLLECTION, idea.id);
-      await updateDoc(docRef, removeUndefinedValues(idea) as any);
+      await ideasCollection().doc(idea.id).set(removeUndefinedValues(idea), { merge: true });
     }
   } catch (err) {
-    console.warn("Audit trail update failed for express interest:", err);
+    console.error("Audit trail update failed for express interest:", err);
+    throw err;
   }
 
   return newConn;
@@ -408,23 +337,11 @@ export async function createConnectionRequest(params: {
 export async function getStudentConnections(studentId: string): Promise<ConnectionRequest[]> {
   const result: ConnectionRequest[] = [];
   try {
-    const q = query(collection(db, CONNECTIONS_COLLECTION), where("studentId", "==", studentId));
-    const snap = await getDocs(q);
-    snap.forEach((d) => {
-      const item = d.data() as ConnectionRequest;
-      memoryConnectionsMap.set(item.id, item);
-      result.push(item);
-    });
+    const snap = await connectionsCollection().where("studentId", "==", studentId).get();
+    snap.forEach((d) => result.push(serializeFirestoreValue({ id: d.id, ...d.data() }) as ConnectionRequest));
   } catch (err) {
-    console.warn("Firestore getStudentConnections failed:", err);
-  }
-
-  const cachedConns = Array.from(memoryConnectionsMap.values());
-  for (let i = 0; i < cachedConns.length; i++) {
-    const conn = cachedConns[i];
-    if (conn.studentId === studentId && !result.some((r) => r.id === conn.id)) {
-      result.push(conn);
-    }
+    console.error("Firestore getStudentConnections failed:", err);
+    throw err;
   }
 
   result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -444,22 +361,11 @@ export async function getAllConnectionsForAdmin(): Promise<{
 }> {
   const result: ConnectionRequest[] = [];
   try {
-    const snap = await getDocs(collection(db, CONNECTIONS_COLLECTION));
-    snap.forEach((d) => {
-      const item = d.data() as ConnectionRequest;
-      memoryConnectionsMap.set(item.id, item);
-      result.push(item);
-    });
+    const snap = await connectionsCollection().get();
+    snap.forEach((d) => result.push(serializeFirestoreValue({ id: d.id, ...d.data() }) as ConnectionRequest));
   } catch (err) {
-    console.warn("Firestore getAllConnections failed:", err);
-  }
-
-  const cachedConns = Array.from(memoryConnectionsMap.values());
-  for (let i = 0; i < cachedConns.length; i++) {
-    const conn = cachedConns[i];
-    if (!result.some((r) => r.id === conn.id)) {
-      result.push(conn);
-    }
+    console.error("Firestore getAllConnections failed:", err);
+    throw err;
   }
 
   result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -483,17 +389,13 @@ export async function adminUpdateConnectionStatus(params: {
   adminId?: string;
   adminName?: string;
 }): Promise<ConnectionRequest> {
-  let existing = memoryConnectionsMap.get(params.connectionId);
-  if (!existing) {
-    try {
-      const docRef = doc(db, CONNECTIONS_COLLECTION, params.connectionId);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        existing = snap.data() as ConnectionRequest;
-      }
-    } catch (err) {
-      console.warn("Firestore getDoc failed for connection:", err);
-    }
+  let existing: ConnectionRequest | undefined;
+  try {
+    const snap = await connectionsCollection().doc(params.connectionId).get();
+    if (snap.exists) existing = serializeFirestoreValue({ id: snap.id, ...snap.data() }) as ConnectionRequest;
+  } catch (err) {
+    console.error("Firestore getDoc failed for connection:", err);
+    throw err;
   }
 
   if (!existing) {
@@ -514,15 +416,7 @@ export async function adminUpdateConnectionStatus(params: {
     note: params.adminNotes || `Status updated to ${params.status}`,
   });
 
-  memoryConnectionsMap.set(existing.id, existing);
-
-  try {
-    const docRef = doc(db, CONNECTIONS_COLLECTION, params.connectionId);
-    const cleaned = removeUndefinedValues(existing);
-    await updateDoc(docRef, cleaned as any);
-  } catch (err) {
-    console.warn("Firestore updateDoc failed for connection status:", err);
-  }
+  await connectionsCollection().doc(params.connectionId).set(removeUndefinedValues(existing), { merge: true });
 
   return existing;
 }

@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminShareCompanyMatches } from "@/lib/idea-link-service";
+import { requireAdmin } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
+    const { authorized, session, errorResponse } = await requireAdmin(req);
+    if (!authorized) return errorResponse;
     const body = await req.json();
     const { ideaId, selectedCompanies, selectedMatches, adminNotes, adminName } = body;
     const matches = selectedCompanies || selectedMatches;
@@ -15,7 +18,8 @@ export async function POST(req: NextRequest) {
       ideaId,
       selectedCompanies: matches,
       adminNotes,
-      adminName: adminName || "SC TECH Venture Board",
+      adminId: session?.userId,
+      adminName: adminName || session?.name || "SC TECH Admin",
     });
 
     return NextResponse.json({

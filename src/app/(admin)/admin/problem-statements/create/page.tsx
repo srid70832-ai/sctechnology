@@ -109,10 +109,10 @@ function ProblemCreateContent() {
         success(`Problem statement saved as ${status}!`);
         router.push("/admin/problem-statements");
       } else {
-        error("Failed to save problem statement");
+        error(res.error || "Failed to save problem statement");
       }
-    } catch {
-      error("Submission error");
+    } catch (err: any) {
+      error(err?.message || "Submission error");
     } finally {
       setSaving(false);
     }
@@ -145,7 +145,7 @@ function ProblemCreateContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-slate-100 p-6 lg:p-10 space-y-8 max-w-5xl mx-auto">
+    <div className="min-h-screen w-full max-w-5xl mx-auto overflow-x-hidden bg-[#0B0F19] text-slate-100 p-3 sm:p-6 lg:p-10 space-y-6 sm:space-y-8">
       
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
@@ -163,12 +163,12 @@ function ProblemCreateContent() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
           <button
             type="button"
             onClick={() => handleSubmit("DRAFT")}
             disabled={saving}
-            className="px-5 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs shadow transition cursor-pointer disabled:opacity-50"
+            className="min-h-11 w-full px-3 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs shadow transition cursor-pointer disabled:opacity-50 sm:w-auto sm:px-5"
           >
             Save as Draft
           </button>
@@ -177,7 +177,7 @@ function ProblemCreateContent() {
             type="button"
             onClick={() => handleSubmit("PUBLISHED")}
             disabled={saving}
-            className="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            className="min-h-11 w-full justify-center px-3 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer disabled:opacity-50 sm:w-auto sm:px-6"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             <span>Publish Directly</span>
@@ -185,7 +185,7 @@ function ProblemCreateContent() {
         </div>
       </div>
 
-      <div className="p-6 sm:p-10 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl space-y-8 text-xs">
+      <div className="w-full min-w-0 p-4 sm:p-10 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl space-y-6 sm:space-y-8 text-xs [&_input]:max-w-full [&_select]:max-w-full [&_textarea]:max-w-full [&_input]:min-h-11 [&_select]:min-h-11">
         
         {/* Section 1: Core Title & Overview */}
         <div className="space-y-4">
@@ -195,12 +195,12 @@ function ProblemCreateContent() {
 
           <div>
             <label className="text-slate-400 block mb-1 font-semibold">Problem Title *</label>
-            <input
-              type="text"
+            <textarea
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
+              rows={2}
               placeholder="e.g. Scalable Multi-Tenant Identity Federation & Access Governance"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="block w-full min-h-11 resize-y overflow-wrap-anywhere bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs leading-5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
               required
             />
           </div>
@@ -333,18 +333,18 @@ function ProblemCreateContent() {
           {/* Required Skills Chip manager */}
           <div>
             <label className="text-slate-400 block mb-1 font-semibold">Required Skills</label>
-            <div className="flex gap-2 mb-2">
+            <div className="flex flex-col gap-2 mb-2 sm:flex-row">
               <input
                 type="text"
                 value={newSkill}
                 onChange={(e) => setNewSkill(e.target.value)}
                 placeholder="e.g. TypeScript, Docker, Redis"
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                className="w-full min-w-0 flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
               />
               <button
                 type="button"
                 onClick={addSkill}
-                className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs"
+                className="min-h-11 w-full px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs sm:w-auto"
               >
                 Add Skill
               </button>
@@ -362,18 +362,18 @@ function ProblemCreateContent() {
           {/* Solution Areas */}
           <div>
             <label className="text-slate-400 block mb-1 font-semibold">Proposed Solution Focus Areas</label>
-            <div className="flex gap-2 mb-2">
+            <div className="flex flex-col gap-2 mb-2 sm:flex-row">
               <input
                 type="text"
                 value={newSolutionArea}
                 onChange={(e) => setNewSolutionArea(e.target.value)}
                 placeholder="e.g. Distributed Consensus Engine"
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                className="w-full min-w-0 flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
               />
               <button
                 type="button"
                 onClick={addSolutionArea}
-                className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs"
+                className="min-h-11 w-full px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold text-xs sm:w-auto"
               >
                 Add Area
               </button>

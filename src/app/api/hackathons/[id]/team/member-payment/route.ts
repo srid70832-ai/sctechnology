@@ -3,8 +3,10 @@ import { getServerSession } from "@/lib/auth";
 import { verifyFirebaseToken } from "@/lib/firebase-admin";
 import { 
   createTeamMemberOrder, 
-  verifyTeamMemberPayment 
+  verifyTeamMemberPayment,
+  createIndividualRegistrationOrder,
 } from "@/lib/hackathons/team-payment-service";
+import { logHackathonOperation } from "@/lib/hackathons/diagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +33,24 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
 
     if (!userId) {
+      logHackathonOperation({ channel: "HACKATHON_PAYMENT", hackathonId: params.id, route: "/api/hackathons/[id]/team/member-payment", operation: "authenticate", result: "unauthenticated" });
       return NextResponse.json({ error: "Please log in to make a payment" }, { status: 401 });
     }
 
     const hackathonId = params.id;
     const body = await req.json();
     const { action = "create-order", teamId, orderId, paymentId, signature } = body;
+
+    if (action === "create-individual-order") {
+      const result = await createIndividualRegistrationOrder({
+        hackathonId,
+        userId,
+        userEmail,
+        userName,
+      });
+      logHackathonOperation({ channel: "HACKATHON_PAYMENT", hackathonId, userId, route: "/api/hackathons/[id]/team/member-payment", operation: action, result: "order-created" });
+      return NextResponse.json(result);
+    }
 
     if (action === "create-order") {
       const result = await createTeamMemberOrder({
@@ -46,6 +60,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         userEmail,
         userName,
       });
+      logHackathonOperation({ channel: "HACKATHON_PAYMENT", hackathonId, userId, route: "/api/hackathons/[id]/team/member-payment", operation: action, result: "order-created" });
       return NextResponse.json(result);
     }
 
@@ -64,13 +79,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         paymentId,
         signature: signature || "",
       });
+      logHackathonOperation({ channel: "HACKATHON_PAYMENT", hackathonId, userId, route: "/api/hackathons/[id]/team/member-payment", operation: action, result: "payment-verified" });
 
       return NextResponse.json(result);
     }
 
     return NextResponse.json({ error: "Invalid action specified" }, { status: 400 });
   } catch (error: any) {
+    logHackathonOperation({ channel: "HACKATHON_PAYMENT", hackathonId: params.id, route: "/api/hackathons/[id]/team/member-payment", operation: "payment", result: "error" });
     console.error("Team Member Payment Error:", error);
-    return NextResponse.json({ error: error?.message || "Payment processing failed" }, { status: 500 });
+    const message = error?.message || "Payment processing failed";
+    const status = message.includes("not found") ? 404 : message.includes("deadline") ? 400 : 500;
+    return NextResponse.json({ error: message, ...(status === 404 ? { hackathonId: params.id } : {}) }, { status });
   }
 }

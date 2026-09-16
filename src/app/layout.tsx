@@ -12,18 +12,33 @@ import { TopProgressBar } from "@/components/ui/TopProgressBar";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "SC TECH — Build Skills. Build Projects. Build Your Career.",
+  metadataBase: new URL("https://sctech.vercel.app"),
+  title: "SC TECH – Build Skills. Build Projects. Build Your Career.",
   description:
-    "SC TECH is a technology and career platform providing real-world projects, verified internships, hackathons, student subscriptions, source code access, HR interaction sessions, and digital certificates.",
-  keywords: [
-    "SC TECH",
-    "internships",
-    "hackathons",
-    "real world projects",
-    "student portfolio",
-    "tech careers",
-    "coding certificates",
-  ],
+    "SC TECH is an all-in-one platform for internships, hackathons, real-world projects, online courses and career opportunities.",
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    siteName: "SC TECH",
+    title: "SC TECH – Build Skills. Build Projects. Build Your Career.",
+    description:
+      "SC TECH is an all-in-one platform for internships, hackathons, real-world projects, online courses and career opportunities.",
+    url: "https://sctech.vercel.app/",
+    images: [{ url: "/sc-tech-logo.png", alt: "SC TECH logo" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "SC TECH – Build Skills. Build Projects. Build Your Career.",
+    description:
+      "SC TECH is an all-in-one platform for internships, hackathons, real-world projects, online courses and career opportunities.",
+    images: ["/sc-tech-logo.png"],
+  },
+  icons: {
+    icon: "/sc-tech-logo.png",
+    apple: "/sc-tech-logo.png",
+    shortcut: "/sc-tech-logo.png",
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({
@@ -33,6 +48,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <link rel="icon" type="image/png" href="/sc-tech-logo.png" />
+        <link rel="apple-touch-icon" href="/sc-tech-logo.png" />
+        <meta name="application-name" content="SC TECH" />
+      </head>
       <body className={`${inter.className} bg-[#0B0F19] text-slate-100 min-h-screen antialiased`}>
         <AuthProvider>
           <ToastProvider>

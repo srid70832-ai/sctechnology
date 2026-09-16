@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { COLLECTIONS } from "@/lib/firestore";
-import { REAL_WORLD_PROJECTS } from "@/lib/projects-data";
 
 export const dynamic = "force-dynamic";
 
@@ -69,12 +67,18 @@ export async function GET(req: Request) {
     // Query Firestore collections if available
     let firestoreStudentsCount = 0;
     let firestoreCompaniesCount = 0;
-    let firestoreProjectsCount = REAL_WORLD_PROJECTS.length;
+    let firestoreProjectsCount = 0;
     let firestoreHackathons: any[] = [];
-    let firestoreCoursesCount = 12;
+    let firestoreCoursesCount = 0;
     let firestoreSubmissions: any[] = [];
-    let firestoreProblemStatementsCount = 10;
+    let firestoreProblemStatementsCount = 0;
     let firestoreOpportunitiesCount = 0;
+
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      console.error("[ADMIN_STATS] Firebase Admin SDK is unavailable; refusing to return synthetic metrics");
+      return NextResponse.json({ error: "Admin metrics are temporarily unavailable: Firebase Admin SDK is not configured." }, { status: 503 });
+    }
 
     try {
       const [
@@ -87,38 +91,41 @@ export async function GET(req: Request) {
         problemsSnap,
         opportunitiesSnap,
       ] = await Promise.all([
-        getDocs(collection(db, COLLECTIONS.USERS)),
-        getDocs(collection(db, COLLECTIONS.COMPANIES)),
-        getDocs(collection(db, COLLECTIONS.PROJECTS)),
-        getDocs(collection(db, COLLECTIONS.HACKATHONS)),
-        getDocs(collection(db, COLLECTIONS.COURSES)),
-        getDocs(collection(db, COLLECTIONS.SUBMISSIONS)),
-        getDocs(collection(db, COLLECTIONS.PROBLEM_STATEMENTS)),
-        getDocs(collection(db, COLLECTIONS.INTERNSHIPS)),
+        adminDb.collection(COLLECTIONS.USERS).get(),
+        adminDb.collection(COLLECTIONS.COMPANIES).get(),
+        adminDb.collection(COLLECTIONS.PROJECTS).get(),
+        adminDb.collection(COLLECTIONS.HACKATHONS).get(),
+        adminDb.collection(COLLECTIONS.COURSES).get(),
+        adminDb.collection(COLLECTIONS.SUBMISSIONS).get(),
+        adminDb.collection(COLLECTIONS.PROBLEM_STATEMENTS).get(),
+        adminDb.collection(COLLECTIONS.INTERNSHIPS).get(),
       ]);
 
       firestoreStudentsCount = usersSnap.docs.filter((d) => d.data().role === "STUDENT").length;
       firestoreCompaniesCount = companiesSnap.size;
-      firestoreProjectsCount = Math.max(projectsSnap.size, REAL_WORLD_PROJECTS.length);
+      firestoreProjectsCount = projectsSnap.size;
       firestoreHackathons = hackathonsSnap.docs.map((d) => d.data());
-      firestoreCoursesCount = Math.max(coursesSnap.size, 12);
+      firestoreCoursesCount = coursesSnap.size;
       firestoreSubmissions = submissionsSnap.docs.map((d) => d.data());
-      firestoreProblemStatementsCount = Math.max(problemsSnap.size, 10);
+      firestoreProblemStatementsCount = problemsSnap.size;
       firestoreOpportunitiesCount = opportunitiesSnap.size;
     } catch (firestoreErr) {
-      console.warn("Firestore count fetch fallback in stats:", firestoreErr);
+      console.error("Firestore count fetch failed in stats:", firestoreErr);
+      return NextResponse.json({ error: "Admin metrics could not be read from Firestore." }, { status: 500 });
     }
 
-    const totalStudents = Math.max(prismaStudentsCount, firestoreStudentsCount, 8240);
-    const totalCompanies = Math.max(prismaCompaniesCount, firestoreCompaniesCount, 25);
-    const totalInternships = Math.max(prismaInternshipsCount, 60);
-    const totalProjects = Math.max(prismaProjectsCount, firestoreProjectsCount, 25);
-    const totalCourses = Math.max(firestoreCoursesCount, 12);
-    const totalProblemStatements = Math.max(prismaProblemStatementsCount, firestoreProblemStatementsCount, 10);
-    const totalSubmissions = Math.max(applicationsCount + registrationsCount, firestoreSubmissions.length, 142);
-    const pendingSubmissions = firestoreSubmissions.filter((s: any) => s.status === "PENDING" || s.status === "UNDER_REVIEW").length || 18;
+    const totalStudents = Math.max(prismaStudentsCount, firestoreStudentsCount);
+    const totalCompanies = Math.max(prismaCompaniesCount, firestoreCompaniesCount);
+    const totalInternships = Math.max(prismaInternshipsCount, firestoreOpportunitiesCount);
+    const totalProjects = Math.max(prismaProjectsCount, firestoreProjectsCount);
+    const totalCourses = firestoreCoursesCount;
+    const totalProblemStatements = Math.max(prismaProblemStatementsCount, firestoreProblemStatementsCount);
+    const totalSubmissions = Math.max(applicationsCount + registrationsCount, firestoreSubmissions.length);
+    const pendingSubmissions = firestoreSubmissions.filter((s: any) => s.status === "PENDING" || s.status === "UNDER_REVIEW").length;
 
-    const totalRevenue = payments.reduce((acc: number, p: any) => acc + (p.amount || 0), 0) || 185400;
+    const totalRevenue = payments
+      .filter((payment: any) => payment.status === "SUCCESS" || payment.status === "CAPTURED")
+      .reduce((acc: number, payment: any) => acc + Number(payment.amount || 0), 0);
 
     return NextResponse.json({
       success: true,
@@ -126,16 +133,16 @@ export async function GET(req: Request) {
         totalStudents,
         totalCompanies,
         totalInternships,
-        totalHackathons: Math.max(prismaHackathons.length, firestoreHackathons.length, 40),
-        activeHackathons: Math.max(prismaHackathons.filter((h: any) => h.status === "ONGOING" || h.status === "ACTIVE").length, 1),
-        upcomingHackathons: Math.max(prismaHackathons.filter((h: any) => h.status === "UPCOMING").length, 3),
+        totalHackathons: Math.max(prismaHackathons.length, firestoreHackathons.length),
+        activeHackathons: prismaHackathons.filter((h: any) => h.status === "ONGOING" || h.status === "ACTIVE").length,
+        upcomingHackathons: prismaHackathons.filter((h: any) => h.status === "UPCOMING").length,
         totalProjects,
         totalCourses,
         totalProblemStatements,
         totalSubmissions,
         pendingSubmissions,
         totalRevenue,
-        totalOpportunities: firestoreOpportunitiesCount || 60,
+        totalOpportunities: firestoreOpportunitiesCount,
       },
       recentUsers,
       recentPayments,

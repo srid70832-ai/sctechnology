@@ -6,6 +6,7 @@ import {
   saveHackathonResults, 
   getHackathonResults 
 } from "@/lib/hackathons/results-service";
+import { notifyIndexNow, publicContentUrl } from "@/lib/indexnow";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +90,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       adminUid: session?.userId,
       adminEmail: session?.email,
     });
+
+    if (isPublish) {
+      notifyIndexNow([
+        publicContentUrl("hackathons", hackathonId),
+        `/hackathons/${encodeURIComponent(hackathonId)}/results`,
+      ]);
+    }
 
     return NextResponse.json(res);
   } catch (error: any) {

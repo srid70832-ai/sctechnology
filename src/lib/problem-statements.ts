@@ -174,10 +174,10 @@ export async function getPublishedProblemStatements(filters?: {
       return data.statements || data.problemStatements || [];
     }
   } catch (err) {
-    console.warn("API fetch problem statements fallback notice:", err);
+    console.warn("API fetch problem statements notice:", err);
   }
 
-  // Fallback to Firestore client if API is unavailable
+  // Fallback to client Firestore query for published problem statements
   try {
     const colRef = collection(db, "problemStatements");
     const q = query(colRef, where("status", "==", "PUBLISHED"), orderBy("createdAt", "desc"));
@@ -227,42 +227,23 @@ export async function getProblemStatementById(idOrSlug: string): Promise<Problem
 
 // 3. Admin: Get All Problem Statements (Drafts, Published, etc.)
 export async function getAllProblemStatementsAdmin(statusFilter?: string, token?: string): Promise<ProblemStatement[]> {
-  try {
-    const params = new URLSearchParams();
-    if (statusFilter && statusFilter !== "ALL") {
-      params.set("status", statusFilter);
-    }
-    const headers: Record<string, string> = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const res = await fetch(`/api/problem-statements?${params.toString()}`, { headers });
-    if (res.ok) {
-      const data = await res.json();
-      return data.statements || data.problemStatements || [];
-    }
-  } catch (err) {
-    console.warn("Admin API problem statements fetch notice:", err);
+  const params = new URLSearchParams();
+  if (statusFilter && statusFilter !== "ALL") {
+    params.set("status", statusFilter);
+  }
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
-  // Fallback to Firestore client
-  try {
-    const colRef = collection(db, "problemStatements");
-    let q = query(colRef, orderBy("createdAt", "desc"));
-    if (statusFilter && statusFilter !== "ALL") {
-      q = query(colRef, where("status", "==", statusFilter), orderBy("createdAt", "desc"));
-    }
-    const snap = await getDocs(q);
-    const list: ProblemStatement[] = [];
-    snap.forEach((d) => {
-      list.push({ id: d.id, ...(d.data() as ProblemStatement) });
-    });
-    return list;
-  } catch (err) {
-    console.error("Error fetching admin problem statements:", err);
-    return [];
+  const res = await fetch(`/api/problem-statements?${params.toString()}`, { headers });
+  if (res.ok) {
+    const data = await res.json();
+    return data.statements || data.problemStatements || [];
   }
+
+  const errData = await res.json().catch(() => ({}));
+  throw new Error(errData.error || `Server responded with status ${res.status}`);
 }
 
 // 4. Save Problem Statement (Create / Update)
@@ -271,63 +252,37 @@ export async function saveProblemStatement(
   adminUid: string,
   existingId?: string,
   token?: string
-): Promise<{ success: boolean; id?: string }> {
+): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
     if (existingId) {
-      const res = await fetch(`/api/problem-statements/${existingId}`, {
+      const res = await fetch(`/api/problem-statements/${encodeURIComponent(existingId)}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify(data),
       });
-      if (res.ok) {
-        const resData = await res.json();
+      const resData = await res.json().catch(() => ({}));
+      if (res.ok && resData.success !== false) {
         return { success: true, id: existingId };
       }
+      return { success: false, error: resData.error || "Failed to update problem statement" };
     } else {
       const res = await fetch(`/api/problem-statements`, {
         method: "POST",
         headers,
         body: JSON.stringify(data),
       });
-      if (res.ok) {
-        const resData = await res.json();
+      const resData = await res.json().catch(() => ({}));
+      if (res.ok && resData.success !== false) {
         return { success: true, id: resData.id };
       }
+      return { success: false, error: resData.error || "Failed to create problem statement" };
     }
-  } catch (err) {
-    console.warn("API save problem statement notice:", err);
-  }
-
-  // Fallback to Firestore
-  try {
-    const colRef = collection(db, "problemStatements");
-    const slug = data.slug || generateSlug(data.title || "problem-statement");
-
-    if (existingId) {
-      const docRef = doc(db, "problemStatements", existingId);
-      await updateDoc(docRef, {
-        ...data,
-        updatedAt: serverTimestamp(),
-      });
-      return { success: true, id: existingId };
-    } else {
-      const docRef = await addDoc(colRef, {
-        ...data,
-        slug,
-        createdBy: adminUid,
-        evaluationCriteria: data.evaluationCriteria || DEFAULT_EVALUATION_CRITERIA,
-        status: data.status || "DRAFT",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      return { success: true, id: docRef.id };
-    }
-  } catch (err) {
-    console.error("Error saving problem statement:", err);
-    return { success: false };
+  } catch (err: any) {
+    console.error("API save problem statement error:", err);
+    return { success: false, error: err?.message || "Network error while saving problem statement" };
   }
 }
 
@@ -342,25 +297,18 @@ export async function updateProblemStatus(
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
-    const res = await fetch(`/api/problem-statements/${id}`, {
+    const res = await fetch(`/api/problem-statements/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers,
       body: JSON.stringify({ status }),
     });
-    if (res.ok) return true;
+    if (res.ok) {
+      const resData = await res.json().catch(() => ({}));
+      return resData.success !== false;
+    }
+    return false;
   } catch (err) {
-    console.warn("API update problem status notice:", err);
-  }
-
-  try {
-    const docRef = doc(db, "problemStatements", id);
-    await updateDoc(docRef, {
-      status,
-      updatedAt: serverTimestamp(),
-    });
-    return true;
-  } catch (err) {
-    console.error("Error updating problem statement status:", err);
+    console.error("API update problem status error:", err);
     return false;
   }
 }
@@ -371,20 +319,17 @@ export async function deleteProblemStatement(id: string, adminUid: string, token
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
-    const res = await fetch(`/api/problem-statements/${id}`, {
+    const res = await fetch(`/api/problem-statements/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers,
     });
-    if (res.ok) return true;
+    if (res.ok) {
+      const resData = await res.json().catch(() => ({}));
+      return resData.success !== false;
+    }
+    return false;
   } catch (err) {
-    console.warn("API delete problem statement notice:", err);
-  }
-
-  try {
-    await deleteDoc(doc(db, "problemStatements", id));
-    return true;
-  } catch (err) {
-    console.error("Error deleting problem statement:", err);
+    console.error("API delete problem statement error:", err);
     return false;
   }
 }

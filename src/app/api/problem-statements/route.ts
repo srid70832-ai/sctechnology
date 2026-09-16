@@ -1,13 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAdmin, getServerSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { db } from "@/lib/firebase";
+import { requireAdmin, requireAuth } from "@/lib/auth";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { removeUndefinedValues } from "@/lib/firestore";
-import { 
-  collection, 
-  addDoc, 
-  serverTimestamp 
-} from "firebase/firestore";
 import { 
   ProblemStatement, 
   generateSlug, 
@@ -16,20 +10,89 @@ import {
 
 export const dynamic = "force-dynamic";
 
-/**
- * Helper to safely parse JSON strings or return arrays
- */
+function toISOStringSafe(val: any): string {
+  if (!val) return new Date().toISOString();
+  if (typeof val === "string") {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? val : d.toISOString();
+  }
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? new Date().toISOString() : val.toISOString();
+  }
+  if (typeof val?.toDate === "function") {
+    return val.toDate().toISOString();
+  }
+  if (typeof val?.seconds === "number") {
+    return new Date(val.seconds * 1000).toISOString();
+  }
+  try {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? String(val) : d.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
 function safeParseArray(val: any): string[] {
-  if (Array.isArray(val)) return val;
+  if (Array.isArray(val)) return val.map(String).map((s) => s.trim()).filter(Boolean);
   if (typeof val === "string") {
     try {
       const parsed = JSON.parse(val);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return parsed.map(String).map((s) => s.trim()).filter(Boolean);
+      return [val.trim()].filter(Boolean);
     } catch {
       return val.split(",").map((s) => s.trim()).filter(Boolean);
     }
   }
   return [];
+}
+
+function formatProblemStatementDoc(id: string, data: any): ProblemStatement {
+  let evalCriteria = DEFAULT_EVALUATION_CRITERIA;
+  try {
+    if (data.evaluationCriteria) {
+      evalCriteria = typeof data.evaluationCriteria === "string"
+        ? JSON.parse(data.evaluationCriteria)
+        : data.evaluationCriteria;
+    }
+  } catch {}
+
+  return {
+    id,
+    problemStatementId: data.problemStatementId || id,
+    slug: data.slug || id,
+    title: data.title || "Untitled Problem Statement",
+    shortDescription: data.shortDescription || data.description || "",
+    fullProblemDescription: data.fullProblemDescription || data.description || data.shortDescription || "",
+    background: data.background || "",
+    problemCategory: data.problemCategory || "Open Innovation",
+    domain: data.domain || "Software Engineering",
+    difficulty: (data.difficulty || "MEDIUM").toUpperCase() as any,
+    organization: data.organization || "SC TECH Original Challenge",
+    organizationType: (data.organizationType || "SC_TECH_ORIGINAL") as any,
+    location: data.location || "India / Global",
+    targetUsers: data.targetUsers || "",
+    existingChallenges: data.existingChallenges || "",
+    expectedOutcome: data.expectedOutcome || "",
+    proposedSolutionAreas: safeParseArray(data.proposedSolutionAreas),
+    requiredSkills: safeParseArray(data.requiredSkills),
+    technologySuggestions: safeParseArray(data.technologySuggestions),
+    constraints: data.constraints || "",
+    eligibility: data.eligibility || "All registered students",
+    teamSizeMin: Number(data.teamSizeMin) || 1,
+    teamSizeMax: Number(data.teamSizeMax) || 4,
+    submissionRequirements: data.submissionRequirements || "GitHub repository + Live URL + Walkthrough Video",
+    evaluationCriteria: evalCriteria,
+    deadline: data.deadline ? toISOStringSafe(data.deadline) : "",
+    sourceUrl: data.sourceUrl || undefined,
+    sourceName: data.sourceName || undefined,
+    isAiGenerated: Boolean(data.isAiGenerated),
+    verificationStatus: (data.verificationStatus || "SC_TECH_ORIGINAL") as any,
+    createdBy: data.createdBy || "ADMIN",
+    status: (data.status || "PUBLISHED").toUpperCase() as any,
+    createdAt: toISOStringSafe(data.createdAt),
+    updatedAt: toISOStringSafe(data.updatedAt),
+  };
 }
 
 /**
@@ -39,6 +102,9 @@ function safeParseArray(val: any): string[] {
  */
 export async function GET(req: Request) {
   try {
+    const { authorized, session, errorResponse } = await requireAuth(req);
+    if (!authorized) return errorResponse;
+
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get("status");
     const hackathonId = searchParams.get("hackathonId");
@@ -46,81 +112,56 @@ export async function GET(req: Request) {
     const difficulty = searchParams.get("difficulty");
     const search = searchParams.get("search");
 
-    const session = await getServerSession(req);
     const isAdmin = session?.role === "ADMIN" || session?.role === "SUPER_ADMIN";
 
-    const whereClause: any = {};
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      console.error("[GET /api/problem-statements] Firebase Admin SDK is not initialized.");
+      return NextResponse.json({ 
+        success: false, 
+        error: "Database configuration error. Firebase Admin SDK is not initialized." 
+      }, { status: 500 });
+    }
+
+    let colRef = adminDb.collection("problemStatements");
+    let queryRef: FirebaseFirestore.Query = colRef;
 
     if (isAdmin && statusParam && statusParam !== "ALL") {
-      whereClause.status = statusParam;
+      queryRef = queryRef.where("status", "==", statusParam.toUpperCase());
     } else if (!isAdmin) {
-      whereClause.status = "PUBLISHED";
+      queryRef = queryRef.where("status", "==", "PUBLISHED");
     }
 
     if (hackathonId) {
-      whereClause.hackathonId = hackathonId;
+      queryRef = queryRef.where("hackathonId", "==", hackathonId);
     }
 
+    const snap = await queryRef.get();
+    let allStatements: ProblemStatement[] = [];
+    snap.forEach((docSnap) => {
+      allStatements.push(formatProblemStatementDoc(docSnap.id, docSnap.data()));
+    });
+
+    // In-memory sort by createdAt descending
+    allStatements.sort((a, b) => {
+      const timeA = new Date(a.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    // In-memory filters
+    let filtered = allStatements;
+
     if (domain && domain !== "All") {
-      whereClause.domain = { contains: domain };
+      const dLower = domain.toLowerCase();
+      filtered = filtered.filter((p) => p.domain?.toLowerCase().includes(dLower));
     }
 
     if (difficulty && difficulty !== "All") {
-      whereClause.difficulty = difficulty.toUpperCase();
+      const diffUpper = difficulty.toUpperCase();
+      filtered = filtered.filter((p) => p.difficulty === diffUpper);
     }
 
-    const prismaList = await prisma.problemStatement.findMany({
-      where: whereClause,
-      orderBy: { createdAt: "desc" },
-    });
-
-    const formattedList: ProblemStatement[] = prismaList.map((p: any) => {
-      let evalCriteria = DEFAULT_EVALUATION_CRITERIA;
-      try {
-        if (p.evaluationCriteria) {
-          evalCriteria = JSON.parse(p.evaluationCriteria);
-        }
-      } catch {}
-
-      return {
-        id: p.id,
-        slug: p.slug,
-        title: p.title,
-        shortDescription: p.shortDescription,
-        fullProblemDescription: p.fullProblemDescription,
-        background: p.background || "",
-        problemCategory: p.problemCategory,
-        domain: p.domain,
-        difficulty: p.difficulty as any,
-        organization: p.organization,
-        organizationType: p.organizationType as any,
-        location: p.location,
-        targetUsers: p.targetUsers || "",
-        existingChallenges: p.existingChallenges || "",
-        expectedOutcome: p.expectedOutcome || "",
-        proposedSolutionAreas: safeParseArray(p.proposedSolutionAreas),
-        requiredSkills: safeParseArray(p.requiredSkills),
-        technologySuggestions: safeParseArray(p.technologySuggestions),
-        constraints: p.constraints || "",
-        eligibility: p.eligibility || "",
-        teamSizeMin: p.teamSizeMin,
-        teamSizeMax: p.teamSizeMax,
-        submissionRequirements: p.submissionRequirements || "",
-        evaluationCriteria: evalCriteria,
-        deadline: p.deadline ? p.deadline.toISOString() : "",
-        sourceUrl: p.sourceUrl || undefined,
-        sourceName: p.sourceName || undefined,
-        isAiGenerated: p.isAiGenerated,
-        verificationStatus: p.verificationStatus as any,
-        createdBy: p.createdBy,
-        status: p.status as any,
-        createdAt: p.createdAt.toISOString(),
-        updatedAt: p.updatedAt.toISOString(),
-      };
-    });
-
-    // In-memory search filter for broad term matching
-    let filtered = formattedList;
     if (search && search.trim()) {
       const qTerm = search.toLowerCase().trim();
       filtered = filtered.filter(
@@ -142,7 +183,10 @@ export async function GET(req: Request) {
     });
   } catch (error: any) {
     console.error("GET /api/problem-statements Error:", error);
-    return NextResponse.json({ error: error?.message || "Failed to fetch problem statements" }, { status: 500 });
+    return NextResponse.json({ 
+      success: false, 
+      error: error?.message || "Failed to fetch problem statements" 
+    }, { status: 500 });
   }
 }
 
@@ -191,124 +235,97 @@ export async function POST(req: Request) {
     } = body;
 
     const resolvedShortDesc = shortDescription || body.description || "";
-    if (!title || !resolvedShortDesc) {
+    const resolvedFullDesc = fullProblemDescription || resolvedShortDesc || "";
+
+    if (!title?.trim() || !resolvedShortDesc?.trim()) {
       return NextResponse.json(
-        { error: "Problem statement title and short description are required." },
+        { success: false, error: "Problem statement title and summary description are required." },
         { status: 400 }
       );
     }
 
-    const toArray = (v: any): string[] => {
-      if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
-      if (typeof v === "string") return v.split("\n").map((s) => s.trim()).filter(Boolean);
-      return [];
-    };
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      console.error("[POST /api/problem-statements] Firebase Admin SDK is not initialized.");
+      return NextResponse.json(
+        { success: false, error: "Database configuration error. Firebase Admin SDK is not initialized." },
+        { status: 500 }
+      );
+    }
 
-    const slug = generateSlug(title);
-    const parsedProposedSolutions = toArray(proposedSolutionAreas);
-    const parsedRequiredSkills = toArray(requiredSkills);
-    const parsedTechSuggestions = toArray(technologySuggestions);
+    const slug = body.slug || generateSlug(title);
+    const docId = id || slug;
+
+    const parsedProposedSolutions = safeParseArray(proposedSolutionAreas);
+    const parsedRequiredSkills = safeParseArray(requiredSkills);
+    const parsedTechSuggestions = safeParseArray(technologySuggestions);
     const parsedEvaluationCriteria = Array.isArray(evaluationCriteria) && evaluationCriteria.length > 0
       ? evaluationCriteria
       : DEFAULT_EVALUATION_CRITERIA;
 
-    const saved = await prisma.problemStatement.upsert({
-      where: id ? { id } : { slug },
-      update: {
-        title: String(title).trim(),
-        shortDescription: String(resolvedShortDesc).trim(),
-        fullProblemDescription: String(fullProblemDescription || resolvedShortDesc).trim(),
-        background: background ? String(background).trim() : null,
-        problemCategory: problemCategory || "Open Innovation",
-        domain: domain || "Software Engineering",
-        difficulty: (difficulty || "MEDIUM").toUpperCase(),
-        organization: organization || "SC TECH Original Challenge",
-        organizationType: organizationType || "SC_TECH_ORIGINAL",
-        location: location || "India / Global",
-        targetUsers: targetUsers || null,
-        existingChallenges: existingChallenges || null,
-        expectedOutcome: expectedOutcome || null,
-        proposedSolutionAreas: JSON.stringify(parsedProposedSolutions),
-        requiredSkills: JSON.stringify(parsedRequiredSkills),
-        technologySuggestions: JSON.stringify(parsedTechSuggestions),
-        constraints: constraints || null,
-        eligibility: eligibility || "All registered students",
-        teamSizeMin: Number(teamSizeMin) || 1,
-        teamSizeMax: Number(teamSizeMax) || 4,
-        submissionRequirements: submissionRequirements || "GitHub repository + Live URL + Walkthrough Video",
-        evaluationCriteria: JSON.stringify(parsedEvaluationCriteria),
-        deadline: deadline ? new Date(deadline) : null,
-        hackathonId: hackathonId || null,
-        roundNumber: roundNumber ? Number(roundNumber) : 1,
-        isAiGenerated: Boolean(isAiGenerated),
-        verificationStatus: verificationStatus || "SC_TECH_ORIGINAL",
-        sourceUrl: sourceUrl || null,
-        sourceName: sourceName || null,
-        status: status || "PUBLISHED",
-      },
-      create: {
-        ...(id ? { id } : {}),
-        slug,
-        title: String(title).trim(),
-        shortDescription: String(resolvedShortDesc).trim(),
-        fullProblemDescription: String(fullProblemDescription || resolvedShortDesc).trim(),
-        background: background ? String(background).trim() : null,
-        problemCategory: problemCategory || "Open Innovation",
-        domain: domain || "Software Engineering",
-        difficulty: (difficulty || "MEDIUM").toUpperCase(),
-        organization: organization || "SC TECH Original Challenge",
-        organizationType: organizationType || "SC_TECH_ORIGINAL",
-        location: location || "India / Global",
-        targetUsers: targetUsers || null,
-        existingChallenges: existingChallenges || null,
-        expectedOutcome: expectedOutcome || null,
-        proposedSolutionAreas: JSON.stringify(parsedProposedSolutions),
-        requiredSkills: JSON.stringify(parsedRequiredSkills),
-        technologySuggestions: JSON.stringify(parsedTechSuggestions),
-        constraints: constraints || null,
-        eligibility: eligibility || "All registered students",
-        teamSizeMin: Number(teamSizeMin) || 1,
-        teamSizeMax: Number(teamSizeMax) || 4,
-        submissionRequirements: submissionRequirements || "GitHub repository + Live URL + Walkthrough Video",
-        evaluationCriteria: JSON.stringify(parsedEvaluationCriteria),
-        deadline: deadline ? new Date(deadline) : null,
-        hackathonId: hackathonId || null,
-        roundNumber: roundNumber ? Number(roundNumber) : 1,
-        createdBy: session?.userId || "ADMIN",
-        isAiGenerated: Boolean(isAiGenerated),
-        verificationStatus: verificationStatus || "SC_TECH_ORIGINAL",
-        sourceUrl: sourceUrl || null,
-        sourceName: sourceName || null,
-        status: status || "PUBLISHED",
-      },
+    const docData = removeUndefinedValues({
+      id: docId,
+      problemStatementId: docId,
+      slug,
+      title: String(title).trim(),
+      shortDescription: String(resolvedShortDesc).trim(),
+      fullProblemDescription: String(resolvedFullDesc).trim(),
+      background: background ? String(background).trim() : "",
+      problemCategory: problemCategory || "Open Innovation",
+      domain: domain || "Software Engineering",
+      difficulty: (difficulty || "MEDIUM").toUpperCase(),
+      organization: organization || "SC TECH Original Challenge",
+      organizationType: organizationType || "SC_TECH_ORIGINAL",
+      location: location || "India / Global",
+      targetUsers: targetUsers || "",
+      existingChallenges: existingChallenges || "",
+      expectedOutcome: expectedOutcome || "",
+      proposedSolutionAreas: parsedProposedSolutions,
+      requiredSkills: parsedRequiredSkills,
+      technologySuggestions: parsedTechSuggestions,
+      constraints: constraints || "",
+      eligibility: eligibility || "All registered students",
+      teamSizeMin: Number(teamSizeMin) || 1,
+      teamSizeMax: Number(teamSizeMax) || 4,
+      submissionRequirements: submissionRequirements || "GitHub repository + Live URL + Walkthrough Video",
+      evaluationCriteria: parsedEvaluationCriteria,
+      deadline: deadline ? toISOStringSafe(deadline) : "",
+      hackathonId: hackathonId || null,
+      roundNumber: roundNumber ? Number(roundNumber) : 1,
+      createdBy: session?.userId || "ADMIN",
+      isAiGenerated: Boolean(isAiGenerated),
+      verificationStatus: verificationStatus || "SC_TECH_ORIGINAL",
+      sourceUrl: sourceUrl || null,
+      sourceName: sourceName || null,
+      status: (status || "PUBLISHED").toUpperCase(),
+      createdAt: body.createdAt ? toISOStringSafe(body.createdAt) : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
 
-    // Optional Firestore sync in background
-    try {
-      const colRef = collection(db, "problemStatements");
-      await addDoc(colRef, removeUndefinedValues({
-        id: saved.id,
-        title: saved.title,
-        slug: saved.slug,
-        shortDescription: saved.shortDescription,
-        domain: saved.domain,
-        difficulty: saved.difficulty,
-        organization: saved.organization,
-        status: saved.status,
-        createdAt: serverTimestamp(),
-      }));
-    } catch {}
+    // Authoritative write to Firestore problemStatements collection
+    await adminDb.collection("problemStatements").doc(docId).set(docData, { merge: true });
+
+    // Verify document was written
+    const verifySnap = await adminDb.collection("problemStatements").doc(docId).get();
+    if (!verifySnap.exists) {
+      throw new Error("Firestore document write could not be verified.");
+    }
+
+    const savedStatement = formatProblemStatementDoc(docId, verifySnap.data());
 
     return NextResponse.json({
       success: true,
-      message: "Problem statement saved successfully.",
-      id: saved.id,
-      statement: saved,
-      problemStatement: saved,
+      message: `Problem statement saved successfully as ${savedStatement.status}.`,
+      id: docId,
+      statement: savedStatement,
+      problemStatement: savedStatement,
     });
   } catch (error: any) {
     console.error("POST /api/problem-statements Error:", error);
-    return NextResponse.json({ error: error?.message || "Failed to save problem statement" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: error?.message || "Failed to save problem statement to database." },
+      { status: 500 }
+    );
   }
 }
 

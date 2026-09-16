@@ -1,17 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { db } from "@/lib/firebase";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  query, 
-  where, 
-  serverTimestamp 
-} from "firebase/firestore";
 import { HackathonTeam, RoundStatus, TeamMemberItem } from "@/lib/hackathon-team-models";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
@@ -47,13 +37,12 @@ function writeTeams(teams: HackathonTeam[]) {
 
 export async function getTeamsForHackathon(hackathonId: string): Promise<HackathonTeam[]> {
   try {
-    const teamsRef = collection(db, COLLECTIONS.HACKATHON_TEAMS);
-    const q = query(
-      teamsRef,
-      where("hackathonId", "==", hackathonId),
-      where("status", "==", "ACTIVE")
-    );
-    const snap = await getDocs(q);
+    const adminDb = getAdminDb();
+    if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+    const snap = await adminDb.collection(COLLECTIONS.HACKATHON_TEAMS)
+      .where("hackathonId", "==", hackathonId)
+      .where("status", "==", "ACTIVE")
+      .get();
     const firestoreTeams: HackathonTeam[] = [];
     snap.forEach((d) => {
       firestoreTeams.push({ id: d.id, ...(d.data() as any) });
@@ -98,10 +87,11 @@ export async function saveTeamDoc(team: HackathonTeam): Promise<boolean> {
   // 1. Try Firestore
   let fsSaved = false;
   try {
-    const teamDocRef = doc(db, COLLECTIONS.HACKATHON_TEAMS, team.id);
-    await setDoc(teamDocRef, removeUndefinedValues({
+    const adminDb = getAdminDb();
+    if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+    await adminDb.collection(COLLECTIONS.HACKATHON_TEAMS).doc(team.id).set(removeUndefinedValues({
       ...team,
-      updatedAt: serverTimestamp(),
+      updatedAt: new Date().toISOString(),
     }), { merge: true });
     fsSaved = true;
   } catch (err: any) {
@@ -141,9 +131,10 @@ export async function updateTeamSubmission(
 
   // Try Firestore directly
   try {
-    const teamDocRef = doc(db, COLLECTIONS.HACKATHON_TEAMS, teamId);
-    const snap = await getDoc(teamDocRef);
-    if (snap.exists()) {
+    const adminDb = getAdminDb();
+    if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+    const snap = await adminDb.collection(COLLECTIONS.HACKATHON_TEAMS).doc(teamId).get();
+    if (snap.exists) {
       const existing = snap.data() as HackathonTeam;
       existing.submission = submission;
       await saveTeamDoc(existing);
@@ -170,9 +161,10 @@ export async function updateTeamRoundStatus(
   }
 
   try {
-    const teamDocRef = doc(db, COLLECTIONS.HACKATHON_TEAMS, teamId);
-    const snap = await getDoc(teamDocRef);
-    if (snap.exists()) {
+    const adminDb = getAdminDb();
+    if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+    const snap = await adminDb.collection(COLLECTIONS.HACKATHON_TEAMS).doc(teamId).get();
+    if (snap.exists) {
       const existing = snap.data() as HackathonTeam;
       existing.roundStatus = roundStatus;
       if (round) existing.round = round;
@@ -193,8 +185,10 @@ export async function removeMemberFromTeam(
 
   if (!team) {
     try {
-      const snap = await getDoc(doc(db, COLLECTIONS.HACKATHON_TEAMS, teamId));
-      if (snap.exists()) {
+      const adminDb = getAdminDb();
+      if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+      const snap = await adminDb.collection(COLLECTIONS.HACKATHON_TEAMS).doc(teamId).get();
+      if (snap.exists) {
         team = snap.data() as HackathonTeam;
       }
     } catch {}

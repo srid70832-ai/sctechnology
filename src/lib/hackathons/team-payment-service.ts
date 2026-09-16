@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { db } from "@/lib/firebase";
 import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
 import { doc, getDoc, setDoc, addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { createRazorpayOrder, verifyRazorpaySignature } from "@/lib/payment";
+import { createRazorpayOrder, getRazorpayKeyId, verifyRazorpayPayment } from "@/lib/payment";
 import { 
   HackathonTeam, 
   TeamMemberItem, 
@@ -10,6 +10,7 @@ import {
 } from "@/lib/hackathon-team-models";
 import { findUserTeam, saveTeamDoc, getTeamsForHackathon } from "@/lib/team-storage";
 import { processReferralConversion } from "@/lib/referrals/service";
+import { resolveHackathon } from "@/lib/hackathons/resolve-hackathon";
 
 /**
  * Creates an individual Razorpay payment order for a specific team member
@@ -29,9 +30,7 @@ export async function createTeamMemberOrder({
   userName: string;
 }) {
   // 1. Fetch Hackathon details
-  const hackathon = await prisma.hackathon.findFirst({
-    where: { OR: [{ id: hackathonId }, { slug: hackathonId }] },
-  });
+  const hackathon = await resolveHackathon(hackathonId);
 
   if (!hackathon) {
     throw new Error("Hackathon not found");
@@ -127,10 +126,54 @@ export async function createTeamMemberOrder({
     amount: order.amount, // in paise
     amountInINR: entryFee,
     currency: order.currency,
-    keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "rzp_test_SyQsxxuaEPVQuS",
+    keyId: getRazorpayKeyId(),
     hackathonTitle: hackathon.title,
     teamName: team.name,
     memberRole: member.role,
+  };
+}
+
+export async function createIndividualRegistrationOrder({
+  hackathonId,
+  userId,
+  userEmail,
+  userName,
+}: {
+  hackathonId: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+}) {
+  const hackathon = await resolveHackathon(hackathonId);
+  if (!hackathon) throw new Error("Hackathon not found");
+  if (new Date() > new Date(hackathon.registrationDeadline)) {
+    throw new Error("Registration deadline has passed for this hackathon");
+  }
+  if (hackathon.entryFee <= 0) {
+    return { requiresPayment: false, amount: 0, orderId: null, message: "This hackathon is free to join." };
+  }
+
+  const order = await createRazorpayOrder({
+    amount: hackathon.entryFee,
+    receipt: `hack_ind_${hackathon.id}_${userId.slice(0, 6)}_${Date.now()}`,
+    notes: {
+      hackathonId: hackathon.id,
+      hackathonTitle: hackathon.title,
+      userId,
+      userEmail,
+      userName,
+      type: "HACKATHON_INDIVIDUAL_REGISTRATION",
+    },
+  });
+
+  return {
+    requiresPayment: true,
+    orderId: order.orderId,
+    amount: order.amount,
+    amountInINR: hackathon.entryFee,
+    currency: order.currency,
+    keyId: getRazorpayKeyId(),
+    hackathonTitle: hackathon.title,
   };
 }
 
@@ -158,24 +201,18 @@ export async function verifyTeamMemberPayment({
   signature: string;
 }) {
   // 1. Fetch Hackathon details
-  const hackathon = await prisma.hackathon.findFirst({
-    where: { OR: [{ id: hackathonId }, { slug: hackathonId }] },
-  });
+  const hackathon = await resolveHackathon(hackathonId);
 
   if (!hackathon) {
     throw new Error("Hackathon not found");
   }
 
   // 2. Validate Razorpay signature
-  const isValid = verifyRazorpaySignature({
+  await verifyRazorpayPayment({
     orderId,
     paymentId,
     signature,
   });
-
-  if (!isValid) {
-    throw new Error("Invalid Razorpay payment signature. Payment cannot be verified.");
-  }
 
   // 3. Find team
   let team: HackathonTeam | null = null;

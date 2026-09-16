@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { COLLECTIONS } from "@/lib/firestore";
+import { getAdminDb } from "@/lib/firebase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -16,16 +14,15 @@ export async function GET(req: Request) {
     const search = searchParams.get("search")?.toLowerCase().trim() || "";
 
     // 1. Fetch from Firestore students collection
-    const firestoreStudents: any[] = [];
-    try {
-      const colRef = collection(db, COLLECTIONS.STUDENTS);
-      const snap = await getDocs(colRef);
-      snap.forEach((d) => {
-        firestoreStudents.push({ id: d.id, ...d.data() });
-      });
-    } catch (fsErr) {
-      console.warn("Error fetching Firestore students:", fsErr);
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      console.error("[ADMIN_STUDENTS] Firebase Admin SDK is unavailable; refusing to return an empty directory");
+      return NextResponse.json({ error: "Student directory is temporarily unavailable: Firebase Admin SDK is not configured." }, { status: 503 });
     }
+
+    const firestoreStudents: any[] = [];
+    const studentSnapshot = await adminDb.collection("students").get();
+    studentSnapshot.forEach((d) => firestoreStudents.push({ id: d.id, ...d.data() }));
 
     // 2. Fetch from Prisma
     const prismaStudents = await prisma.user.findMany({
@@ -47,15 +44,15 @@ export async function GET(req: Request) {
         id: ps.id,
         uid: ps.firebaseUid || ps.id,
         email: ps.email,
-        name: ps.name,
-        college: ps.studentProfile?.college || "Not Specified",
-        department: ps.studentProfile?.department || "Not Specified",
-        year: ps.studentProfile?.year || "Not Specified",
+          name: ps.name || "Profile not completed",
+          college: ps.studentProfile?.college || "Profile not completed",
+          department: ps.studentProfile?.department || "Profile not completed",
+          year: ps.studentProfile?.year || "Profile not completed",
         skills: ps.studentProfile?.skills ? ps.studentProfile.skills.split(",") : [],
         githubUrl: ps.studentProfile?.github || null,
         linkedinUrl: ps.studentProfile?.linkedin || null,
         resumeUrl: ps.studentProfile?.resumeUrl || null,
-        profileScore: ps.studentProfile?.profileScore || 85,
+          profileScore: ps.studentProfile?.profileScore || 0,
         hackathonsCount: ps.hackathonRegistrations.length,
         plan: ps.subscriptions[0] ? "PLUS / PRO" : "Free Starter",
         createdAt: ps.createdAt,
@@ -85,19 +82,19 @@ export async function GET(req: Request) {
           id: fs.uid,
           uid: fs.uid,
           email: fs.email,
-          name: fs.fullName || "Student",
-          college: fs.college || "Not Specified",
-          department: fs.department || "Not Specified",
-          year: fs.yearOfStudy || fs.year || "Not Specified",
+          name: fs.fullName || "Profile not completed",
+          college: fs.college || "Profile not completed",
+          department: fs.department || "Profile not completed",
+          year: fs.yearOfStudy || fs.year || "Profile not completed",
           skills: fs.technicalSkills || fs.skills || [],
           githubUrl: fs.githubUrl || null,
           linkedinUrl: fs.linkedinUrl || null,
           portfolioUrl: fs.portfolioUrl || null,
           resumeUrl: fs.resumeUrl || null,
-          profileScore: fs.profileCompletionPercentage || 70,
+          profileScore: fs.profileCompletionPercentage || 0,
           hackathonsCount: 0,
           plan: "Free Starter",
-          createdAt: fs.createdAt || new Date(),
+          createdAt: fs.createdAt || null,
         });
       }
     }

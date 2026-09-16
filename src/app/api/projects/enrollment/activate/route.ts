@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { activateProjectForStudent } from "@/lib/project-lifecycle-service";
+import { getServerSession } from "@/lib/auth";
+import { hasRealWorldProjectsAccess, projectAccessError } from "@/lib/real-world-project-access";
+import { activateProjectServer } from "@/lib/project-activation-server";
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(req);
+    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
+    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
+
     const body = await req.json();
     const { 
-      studentId, 
-      studentName, 
-      studentEmail, 
+      studentId: _studentId, 
+      studentName: _studentName, 
+      studentEmail: _studentEmail, 
       projectId, 
       projectSlug, 
       projectTitle, 
@@ -17,24 +23,24 @@ export async function POST(req: NextRequest) {
       isNextProjectActivation 
     } = body;
 
-    if (!studentId || !projectId || !duration) {
+    if (!session?.userId || !projectId || !duration) {
       return NextResponse.json(
         { error: "Student ID, Project ID, and Duration are required." },
         { status: 400 }
       );
     }
 
-    const result = await activateProjectForStudent({
-      studentId,
-      studentName: studentName || "Verified Student",
-      studentEmail: studentEmail || "",
+    if (isNextProjectActivation) {
+      return NextResponse.json({ error: "The separate ₹99 next-project activation payment must be completed before activation." }, { status: 402 });
+    }
+
+    const result = await activateProjectServer({
+      studentId: session.userId,
+      studentName: session.name || "Verified Student",
+      studentEmail: session.email || "",
       projectId,
-      projectSlug: projectSlug || projectId,
-      projectTitle: projectTitle || "Real-World Engineering Project",
-      projectCategory: projectCategory || "Full Stack Development",
-      projectDifficulty: projectDifficulty || "INTERMEDIATE",
       duration,
-      isNextProjectActivation: !!isNextProjectActivation,
+      planId: access.planCode,
     });
 
     if (!result.success) {

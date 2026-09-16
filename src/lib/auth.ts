@@ -86,10 +86,7 @@ export async function getServerSession(req?: Request): Promise<SessionPayload | 
 
       if (authResult.success && authResult.uid) {
         const userEmail = authResult.email ? authResult.email.toLowerCase().trim() : "";
-        const isAdminEmail = userEmail === "admin@sctech.com" || userEmail === "superadmin@sctech.com" || userEmail === "srics2425@gmail.com";
-        const isSuperAdminEmail = userEmail === "superadmin@sctech.com" || userEmail === "srics2425@gmail.com";
-
-        // Query Firestore users/{uid} for role if needed
+        // Authoritative role lookup: Custom claims OR Firestore users/{uid}.role
         let firestoreRole: string | null = null;
         try {
           const adminDb = getAdminDb();
@@ -105,8 +102,9 @@ export async function getServerSession(req?: Request): Promise<SessionPayload | 
 
         if (!firestoreRole) {
           try {
+            const currentProjectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "scmain-ae18f";
             const fsRes = await fetch(
-              `https://firestore.googleapis.com/v1/projects/scmain-b2cde/databases/(default)/documents/users/${authResult.uid}`,
+              `https://firestore.googleapis.com/v1/projects/${currentProjectId}/databases/(default)/documents/users/${authResult.uid}`,
               authResult.token ? { headers: { Authorization: `Bearer ${authResult.token}` } } : {}
             );
             if (fsRes.ok) {
@@ -117,10 +115,16 @@ export async function getServerSession(req?: Request): Promise<SessionPayload | 
         }
 
         let targetRole: SessionPayload["role"] = "STUDENT";
-        if (isSuperAdminEmail || authResult.role === "SUPER_ADMIN" || firestoreRole === "SUPER_ADMIN") {
+        if (authResult.role === "SUPER_ADMIN" || firestoreRole === "SUPER_ADMIN") {
           targetRole = "SUPER_ADMIN";
-        } else if (isAdminEmail || authResult.role === "ADMIN" || firestoreRole === "ADMIN") {
+        } else if (authResult.role === "ADMIN" || firestoreRole === "ADMIN") {
           targetRole = "ADMIN";
+        } else if (authResult.role === "JUDGE" || firestoreRole === "JUDGE") {
+          targetRole = "JUDGE";
+        } else if (authResult.role === "HR" || firestoreRole === "HR") {
+          targetRole = "HR";
+        } else if (authResult.role === "COMPANY" || firestoreRole === "COMPANY") {
+          targetRole = "COMPANY";
         }
 
         const effectiveRole = targetRole;

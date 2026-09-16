@@ -17,8 +17,10 @@ import {
 import { prisma } from "@/lib/prisma";
 import { generateRegistrationNo } from "@/lib/utils";
 import { isDeadlinePassed } from "@/lib/platform-models";
-import { verifyRazorpaySignature } from "@/lib/payment";
+import { verifyRazorpayPayment } from "@/lib/payment";
 import { processReferralConversion } from "@/lib/referrals/service";
+import { resolveHackathon } from "@/lib/hackathons/resolve-hackathon";
+import { logHackathonOperation } from "@/lib/hackathons/diagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +35,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     }
 
     const hackathonId = params.id;
-    const hackathon = await prisma.hackathon.findFirst({
-      where: { OR: [{ id: hackathonId }, { slug: hackathonId }] },
-    });
+    const hackathon = await resolveHackathon(hackathonId);
 
     const userTeam = await findUserTeam(hackathon?.id || hackathonId, session.userId);
 
@@ -82,12 +82,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
 
     // 1. Fetch hackathon details to check deadlines and mode
-    const hackathon = await prisma.hackathon.findFirst({
-      where: { OR: [{ id: hackathonId }, { slug: hackathonId }] },
-    });
+    const hackathon = await resolveHackathon(hackathonId);
 
     if (!hackathon) {
-      return NextResponse.json({ error: "Hackathon not found" }, { status: 404 });
+      logHackathonOperation({ channel: "HACKATHON_REGISTRATION", hackathonId, userId: session.userId, route: "/api/hackathons/[id]/team", operation: "resolve-hackathon", result: "not-found" });
+      return NextResponse.json({ error: "Hackathon not found", hackathonId }, { status: 404 });
     }
 
     // 2. Deadline check
@@ -108,13 +107,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       if (t.members?.some((m) => m.userId === session.userId)) {
         return NextResponse.json(
           { error: `You are already registered in team "${t.name}" (${t.teamId}) for this hackathon` },
-          { status: 400 }
+          { status: 409 }
         );
       }
       if (t.name.toLowerCase() === String(teamName).trim().toLowerCase()) {
         return NextResponse.json(
           { error: "A team with this name already exists in this hackathon. Please choose another name." },
-          { status: 400 }
+          { status: 409 }
         );
       }
     }
@@ -130,7 +129,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (existingPrismaReg) {
       return NextResponse.json(
         { error: "You are already registered for this hackathon." },
-        { status: 400 }
+        { status: 409 }
       );
     }
 
@@ -140,8 +139,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     let verifiedPaymentRecordId: string | null = null;
 
     if (isPaidHackathon && signature && orderId && paymentId) {
-      const isValid = verifyRazorpaySignature({ orderId, paymentId, signature });
-      if (isValid) {
+      try {
+        await verifyRazorpayPayment({ orderId, paymentId, signature });
         leaderPaymentStatus = "PAID";
         try {
           const payment = await prisma.payment.create({
@@ -159,6 +158,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           });
           verifiedPaymentRecordId = payment.id;
         } catch {}
+      } catch (paymentError) {
+        console.warn("Team leader payment was not confirmed:", paymentError);
       }
     }
 
@@ -249,7 +250,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           userId: session.userId,
           registrationNo: regNo,
           paymentId: verifiedPaymentRecordId,
-          status: "CONFIRMED",
+          status: leaderPaymentStatus === "PAID" || !isPaidHackathon ? "CONFIRMED" : "PENDING",
         },
       });
     } catch (prismaErr) {
@@ -281,6 +282,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       team: newTeam,
     });
   } catch (error: any) {
+    logHackathonOperation({ channel: "HACKATHON_REGISTRATION", hackathonId: params.id, route: "/api/hackathons/[id]/team", operation: "create-team", result: "error" });
     console.error("Create Hackathon Team Error:", error);
     return NextResponse.json({ error: error?.message || "Failed to create team" }, { status: 500 });
   }

@@ -4,20 +4,7 @@
  * Zero dependency on @prisma/client, PostgreSQL, or SQL engines.
  */
 
-import { db } from "./firebase";
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where as fsWhere, 
-  orderBy as fsOrderBy, 
-  limit as fsLimit 
-} from "firebase/firestore";
+import { getAdminDb } from "./firebase-admin";
 import { removeUndefinedValues } from "./firestore";
 
 const collectionMap: Record<string, string> = {
@@ -59,23 +46,25 @@ function createCollectionHandler(modelName: string) {
   return {
     async findMany(args?: { where?: any; orderBy?: any; take?: number; skip?: number; include?: any; select?: any }) {
       try {
-        const colRef = collection(db, colName);
-        const constraints: any[] = [];
-
-        if (args?.where) {
-          for (const [key, value] of Object.entries(args.where)) {
-            if (value !== undefined && typeof value !== "object") {
-              constraints.push(fsWhere(key, "==", value));
-            }
+        const adminDb = getAdminDb();
+        if (!adminDb) return [];
+        const where = args?.where || {};
+        let q: FirebaseFirestore.Query = adminDb.collection(colName);
+        for (const [key, value] of Object.entries(where)) {
+          if (key !== "OR" && value !== undefined && (typeof value !== "object" || value === null)) {
+            q = q.where(key, "==", value);
           }
         }
-
-        const q = constraints.length > 0 ? query(colRef, ...constraints) : query(colRef);
-        const snap = await getDocs(q);
+        const snap = await q.get();
         let list: any[] = [];
         snap.forEach((d) => {
           list.push({ id: d.id, ...d.data() });
         });
+        if (Array.isArray(where.OR)) {
+          list = list.filter((item) => where.OR.some((condition: Record<string, unknown>) =>
+            Object.entries(condition).every(([key, value]) => item[key] === value)
+          ));
+        }
 
         if (args?.take && list.length > args.take) {
           list = list.slice(0, args.take);
@@ -99,9 +88,10 @@ function createCollectionHandler(modelName: string) {
     async findUnique(args: { where: any; include?: any; select?: any }) {
       try {
         if (args?.where?.id) {
-          const docRef = doc(db, colName, String(args.where.id));
-          const snap = await getDoc(docRef);
-          if (snap.exists()) {
+          const adminDb = getAdminDb();
+          if (!adminDb) return null;
+          const snap = await adminDb.collection(colName).doc(String(args.where.id)).get();
+          if (snap.exists) {
             return { id: snap.id, ...snap.data() };
           }
         }
@@ -131,15 +121,11 @@ function createCollectionHandler(modelName: string) {
       data.createdAt = data.createdAt || new Date().toISOString();
       data.updatedAt = new Date().toISOString();
 
-      try {
-        const docRef = doc(db, colName, docId);
-        const cleaned = removeUndefinedValues(data);
-        await setDoc(docRef, cleaned);
-        return { id: docId, ...cleaned };
-      } catch (err) {
-        console.warn(`Firestore create(${colName}) notice:`, err);
-        return { id: docId, ...data };
-      }
+      const adminDb = getAdminDb();
+      if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+      const cleaned = removeUndefinedValues(data);
+      await adminDb.collection(colName).doc(docId).set(cleaned);
+      return { id: docId, ...cleaned };
     },
 
     async update(args: { where: { id?: string; [key: string]: any }; data: any; include?: any; select?: any }) {
@@ -147,15 +133,11 @@ function createCollectionHandler(modelName: string) {
       const data = { ...args.data, updatedAt: new Date().toISOString() };
 
       if (id) {
-        try {
-          const docRef = doc(db, colName, String(id));
-          const cleaned = removeUndefinedValues(data);
-          await setDoc(docRef, cleaned, { merge: true });
-          return { id, ...cleaned };
-        } catch (err) {
-          console.warn(`Firestore update(${colName}) notice:`, err);
-          return { id, ...data };
-        }
+        const adminDb = getAdminDb();
+        if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+        const cleaned = removeUndefinedValues(data);
+        await adminDb.collection(colName).doc(String(id)).set(cleaned, { merge: true });
+        return { id, ...cleaned };
       }
       return null;
     },
@@ -163,14 +145,10 @@ function createCollectionHandler(modelName: string) {
     async delete(args: { where: { id?: string; [key: string]: any } }) {
       const id = args.where?.id;
       if (id) {
-        try {
-          const docRef = doc(db, colName, String(id));
-          await deleteDoc(docRef);
-          return { id };
-        } catch (err) {
-          console.warn(`Firestore delete(${colName}) notice:`, err);
-          return { id };
-        }
+        const adminDb = getAdminDb();
+        if (!adminDb) throw new Error("Firebase Admin SDK is not configured");
+        await adminDb.collection(colName).doc(String(id)).delete();
+        return { id };
       }
       return null;
     },
@@ -178,6 +156,14 @@ function createCollectionHandler(modelName: string) {
     async count(args?: { where?: any }) {
       const list = await this.findMany(args);
       return list.length;
+    },
+
+    async deleteMany(args?: { where?: any }) {
+      const list = await this.findMany(args);
+      for (const item of list) {
+        await this.delete({ where: { id: item.id } });
+      }
+      return { count: list.length };
     },
 
     async upsert(args: { where: any; create: any; update: any }) {

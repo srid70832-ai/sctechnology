@@ -34,6 +34,8 @@ import {
   Target
 } from 'lucide-react';
 import { IdeaSubmission, IdeaStatus, CompanyMatchItem, ConnectionRequest, ConnectionStatus, IdeaAuditLogItem } from '@/lib/idea-link-models';
+import { auth, db } from '@/lib/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 
 export default function AdminIdeaLinkPage() {
   const [activeTab, setActiveTab] = useState<'ideas' | 'connections'>('ideas');
@@ -89,12 +91,20 @@ export default function AdminIdeaLinkPage() {
   const [connNotes, setConnNotes] = useState<string>('');
   const [submittingConn, setSubmittingConn] = useState<boolean>(false);
 
+  const getAdminHeaders = async (): Promise<HeadersInit> => {
+    const token = await auth.currentUser?.getIdToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   // Load Data
   const fetchData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('/api/admin/idea-link');
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/admin/idea-link', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch Admin Idea Link data');
       setIdeas(data.ideas || []);
@@ -118,6 +128,26 @@ export default function AdminIdeaLinkPage() {
 
   useEffect(() => {
     fetchData();
+    const unsubscribeIdeas = onSnapshot(
+      collection(db, 'scIdeaLinkIdeas'),
+      () => { void fetchData(); },
+      (listenerError) => {
+        console.error('Admin Idea Link realtime listener failed:', listenerError);
+        setError(`Realtime Idea Link sync failed: ${listenerError.message}`);
+      }
+    );
+    const unsubscribeConnections = onSnapshot(
+      collection(db, 'scIdeaLinkConnections'),
+      () => { void fetchData(); },
+      (listenerError) => {
+        console.error('Admin Idea Link connection listener failed:', listenerError);
+        setError(`Realtime connection sync failed: ${listenerError.message}`);
+      }
+    );
+    return () => {
+      unsubscribeIdeas();
+      unsubscribeConnections();
+    };
   }, []);
 
   // Handle Review (Approve/Reject)
@@ -125,9 +155,10 @@ export default function AdminIdeaLinkPage() {
     if (!selectedIdea) return;
     try {
       setSubmittingReview(true);
+      const adminHeaders = await getAdminHeaders();
       const res = await fetch('/api/admin/idea-link/review', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
         body: JSON.stringify({
           ideaId: selectedIdea.id,
           decision: reviewAction,
@@ -150,9 +181,10 @@ export default function AdminIdeaLinkPage() {
   const handleAnalyzeWithGemini = async (idea: IdeaSubmission) => {
     try {
       setAnalyzingIdeaId(idea.id);
+      const adminHeaders = await getAdminHeaders();
       const res = await fetch('/api/admin/idea-link/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
         body: JSON.stringify({ ideaId: idea.id })
       });
       const data = await res.json();
@@ -187,13 +219,14 @@ export default function AdminIdeaLinkPage() {
     }
     try {
       setSubmittingShare(true);
+      const adminHeaders = await getAdminHeaders();
       const selectedCompanies = selectedMatchIndices.map(
         (idx: number) => selectedIdea.aiAnalysis!.generatedMatches[idx]
       );
 
       const res = await fetch('/api/admin/idea-link/share-matches', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
         body: JSON.stringify({
           ideaId: selectedIdea.id,
           selectedCompanies,
@@ -216,9 +249,10 @@ export default function AdminIdeaLinkPage() {
     if (!selectedConnection) return;
     try {
       setSubmittingConn(true);
+      const adminHeaders = await getAdminHeaders();
       const res = await fetch('/api/admin/idea-link/connection-status', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
         body: JSON.stringify({
           connectionId: selectedConnection.id,
           status: targetConnStatus,

@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import { getVerifiedProjectsFromFirestore } from "@/lib/projects-service";
+import { getServerSession } from "@/lib/auth";
+import { hasRealWorldProjectsAccess, projectAccessError } from "@/lib/real-world-project-access";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
+    const session = await getServerSession(req);
+    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
+    if (!access.hasAccess) {
+      return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
+    }
+
     const { searchParams } = new URL(req.url);
     const difficulty = searchParams.get("difficulty") || "";
     const category = searchParams.get("category") || "";

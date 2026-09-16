@@ -1,4 +1,4 @@
-const apiKey = "AIzaSyAu8BM2KDpOa8dbqbpBjPN-wYotj3r6VjU";
+const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCUuRH152uIxoL03lEyHgcED5g11E16Tog";
 const baseUrl = "http://localhost:3000";
 
 async function runDiscoveryVerification() {

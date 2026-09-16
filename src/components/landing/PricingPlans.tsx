@@ -62,7 +62,7 @@ export const PricingPlans: React.FC<PricingPlansProps> = ({ plans }) => {
       // Check if client-side Razorpay SDK is available
       if (typeof window !== "undefined" && (window as any).Razorpay) {
         const options = {
-          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_SyQsxxuaEPVQuS",
+          key: orderData.keyId,
           amount: orderData.amount, // in paise
           currency: orderData.currency || "INR",
           name: "SC TECH",

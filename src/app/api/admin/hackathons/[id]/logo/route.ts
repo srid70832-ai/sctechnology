@@ -36,7 +36,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (!bucketExists) {
       console.error(`[FIREBASE_STORAGE] Bucket does not exist: ${bucket.name}`);
       return NextResponse.json({
-        error: `Firebase Storage bucket "${bucket.name}" does not exist. Enable Firebase Storage for project scmain-b2cde before uploading logos.`,
+        error: `Firebase Storage bucket "${bucket.name}" does not exist. Enable Firebase Storage for project ${process.env.FIREBASE_PROJECT_ID || "scmain-ae18f"} before uploading logos.`,
       }, { status: 503 });
     }
 
@@ -103,7 +103,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     if (!bucketExists) {
       console.error(`[FIREBASE_STORAGE] Bucket does not exist: ${bucket.name}`);
       return NextResponse.json({
-        error: `Firebase Storage bucket "${bucket.name}" does not exist. Enable Firebase Storage for project scmain-b2cde before removing logos.`,
+        error: `Firebase Storage bucket "${bucket.name}" does not exist. Enable Firebase Storage for project ${process.env.FIREBASE_PROJECT_ID || "scmain-ae18f"} before removing logos.`,
       }, { status: 503 });
     }
 

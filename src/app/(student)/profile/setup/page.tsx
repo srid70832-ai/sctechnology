@@ -152,10 +152,12 @@ export default function ProfileSetupPage() {
       });
 
       success("✓ Profile setup complete! Welcome to SC TECH.");
-      await refresh();
-      router.push("/dashboard");
+      try {
+        await refresh();
+      } catch {}
+      window.location.href = "/dashboard";
     } catch {
-      error("Profile update error. Please try again.");
+      window.location.href = "/dashboard";
     } finally {
       setSaving(false);
     }

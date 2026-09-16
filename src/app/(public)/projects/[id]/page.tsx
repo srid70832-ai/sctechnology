@@ -7,7 +7,7 @@ import { Navbar } from "@/components/ui/Navbar";
 import { Footer } from "@/components/ui/Footer";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
-import { ProjectData, REAL_WORLD_PROJECTS } from "@/lib/projects-data";
+import { ProjectData } from "@/lib/projects-data";
 import { ProjectActivationModal } from "@/components/projects/ProjectActivationModal";
 import { ProjectDurationOption } from "@/lib/project-lifecycle-service";
 import { 
@@ -28,6 +28,7 @@ import {
   Sparkles,
   Terminal,
   Bookmark
+  ,Lock
 } from "lucide-react";
 
 export default function ProjectDetailPage() {
@@ -39,6 +40,7 @@ export default function ProjectDetailPage() {
   const { success, error } = useToast();
 
   const [project, setProject] = useState<ProjectData | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [activeTab, setActiveTab] = useState<"Overview" | "Features" | "Tech Stack" | "Learning Outcomes" | "Tasks" | "FAQ">("Overview");
   
   // Right Sidebar Duration Selector
@@ -47,14 +49,39 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     if (!rawId) return;
-    const found = REAL_WORLD_PROJECTS.find((p) => p.slug === rawId || p.id === rawId);
-    if (found) {
-      setProject(found);
-    } else {
-      // Fallback first project
-      setProject(REAL_WORLD_PROJECTS[0]);
-    }
-  }, [rawId]);
+    fetch(`/api/projects/${encodeURIComponent(rawId)}`)
+      .then(async (response) => {
+        if (response.status === 401) {
+          router.push(`/login?redirect=/projects/${encodeURIComponent(rawId)}`);
+          return;
+        }
+        if (response.status === 403) {
+          setAccessDenied(true);
+          return;
+        }
+        if (!response.ok) throw new Error("Project unavailable");
+        const data = await response.json();
+        setProject(data.project || null);
+      })
+      .catch(() => setAccessDenied(true));
+  }, [rawId, router]);
+
+  if (accessDenied) {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#070B14] text-slate-100">
+        <Navbar />
+        <main className="flex-1 max-w-3xl mx-auto px-6 py-24 text-center">
+          <Lock className="w-12 h-12 text-blue-400 mx-auto mb-5" />
+          <h1 className="text-3xl font-black text-white">Project access requires an eligible plan</h1>
+          <p className="mt-4 text-slate-300">Real-World Projects are available with Plus, Pro or Career plans.</p>
+          <Link href="/plans" className="mt-8 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-500">
+            Upgrade to Plus – ₹399/month <ArrowRight className="w-4 h-4" />
+          </Link>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   if (!project) {
     return (

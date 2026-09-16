@@ -70,7 +70,7 @@ export default function AdminDashboardPage() {
     );
   }
 
-  const m = stats?.metrics || {
+  const m = stats?.stats || {
     totalStudents: 0,
     totalCompanies: 0,
     totalHRs: 0,

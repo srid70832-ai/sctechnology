@@ -1,4 +1,4 @@
-const apiKey = "AIzaSyAu8BM2KDpOa8dbqbpBjPN-wYotj3r6VjU";
+const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCUuRH152uIxoL03lEyHgcED5g11E16Tog";
 
 async function runAuthTests() {
   console.log("==> Step 1: Firebase Auth sign-in for srics2425@gmail.com");

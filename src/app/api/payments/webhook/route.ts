@@ -19,19 +19,20 @@ export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
     const signature = req.headers.get("x-razorpay-signature");
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET || "GmpmUcRIu5oK6cwkaRsRC3mC";
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
 
-    // 1. Verify Webhook Signature if signature provided
-    if (signature && secret) {
-      const expectedSignature = crypto
-        .createHmac("sha256", secret)
-        .update(rawBody)
-        .digest("hex");
+    if (!signature || !secret) {
+      return NextResponse.json({ error: "Webhook signature configuration is missing" }, { status: 500 });
+    }
 
-      if (expectedSignature !== signature) {
-        console.warn("Invalid Razorpay webhook signature");
-        return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
-      }
+    const expectedSignature = crypto
+      .createHmac("sha256", secret)
+      .update(rawBody)
+      .digest("hex");
+
+    if (expectedSignature !== signature) {
+      console.warn("Invalid Razorpay webhook signature");
+      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
 
     const event = JSON.parse(rawBody);

@@ -15,6 +15,7 @@ import {
 import { db } from "@/lib/firebase";
 import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
 import { CourseItem, CourseModuleItem, CourseLessonItem, slugify } from "@/lib/platform-models";
+import { notifyIndexNow, publicContentUrl } from "@/lib/indexnow";
 
 export const dynamic = "force-dynamic";
 
@@ -209,6 +210,9 @@ export async function POST(req: Request) {
     };
 
     await setDoc(courseRef, removeUndefinedValues(payload), { merge: true });
+    if (payload.status === "PUBLISHED") {
+      notifyIndexNow(publicContentUrl("courses", courseSlug));
+    }
     return NextResponse.json({
       success: true,
       courseId,
@@ -239,6 +243,7 @@ export async function DELETE(req: Request) {
       await deleteDoc(doc(db, COLLECTIONS.COURSE_LESSONS, id));
     } else {
       await deleteDoc(doc(db, COLLECTIONS.COURSES, id));
+      notifyIndexNow(publicContentUrl("courses", id));
     }
 
     return NextResponse.json({ success: true, message: `${type} deleted successfully.` });

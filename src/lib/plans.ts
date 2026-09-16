@@ -16,7 +16,7 @@ import { db } from "./firebase";
 export interface PlanData {
   id?: string;
   name: string;
-  code: "FREE" | "STARTER" | "PRO" | "CAREER";
+  code: "FREE" | "STARTER" | "PLUS" | "PRO" | "CAREER";
   positioning: string;
   tagline: string;
   priceMonthly: number;
@@ -76,6 +76,27 @@ export const DEFAULT_PLANS: PlanData[] = [
     sortOrder: 2,
   },
   {
+    name: "Plus",
+    code: "PLUS",
+    positioning: "For students ready to build real-world projects",
+    tagline: "Full access to production project tracks",
+    priceMonthly: 399,
+    priceYearly: 3999,
+    currency: "INR",
+    features: [
+      "Everything in Starter plan",
+      "Full Real-World Projects access",
+      "Project tasks, guidelines and repositories",
+      "Project enrollment and evaluation workflows",
+      "Verifiable digital certificates for completed activities",
+      "Priority student support",
+    ],
+    ctaText: "Choose Plus",
+    isPopular: false,
+    active: true,
+    sortOrder: 3,
+  },
+  {
     name: "Pro",
     code: "PRO",
     positioning: "For students serious about building a strong portfolio",
@@ -97,7 +118,7 @@ export const DEFAULT_PLANS: PlanData[] = [
     ctaText: "Choose Pro →",
     isPopular: true,
     active: true,
-    sortOrder: 3,
+    sortOrder: 4,
   },
   {
     name: "Career",
@@ -121,7 +142,7 @@ export const DEFAULT_PLANS: PlanData[] = [
     ctaText: "Build My Career →",
     isPopular: false,
     active: true,
-    sortOrder: 4,
+    sortOrder: 5,
   },
 ];
 

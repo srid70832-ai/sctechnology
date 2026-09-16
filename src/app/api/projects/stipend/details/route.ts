@@ -3,12 +3,18 @@ import {
   saveStudentPaymentDetails, 
   getStudentPaymentDetails 
 } from "@/lib/payment-vault-service";
+import { getServerSession } from "@/lib/auth";
+import { hasRealWorldProjectsAccess, projectAccessError } from "@/lib/real-world-project-access";
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(req);
+    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
+    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
+
     const body = await req.json();
     const { 
-      userId, 
+      userId: _requestedUserId, 
       studentName, 
       studentEmail, 
       phone, 
@@ -19,6 +25,7 @@ export async function POST(req: NextRequest) {
       upiId 
     } = body;
 
+    const userId = session?.userId || "";
     if (!userId || !studentName || !accountNumber || !ifscCode) {
       return NextResponse.json(
         { error: "Account Holder Name, Bank Name, Account Number, and IFSC Code are required." },
@@ -51,8 +58,12 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    const session = await getServerSession(req);
+    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
+    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
+
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get("userId");
+    const userId = session?.userId;
     if (!userId) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 });
     }

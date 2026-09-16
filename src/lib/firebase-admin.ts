@@ -4,16 +4,15 @@ import { getFirestore, Firestore } from "firebase-admin/firestore";
 import { getStorage, Storage } from "firebase-admin/storage";
 import jwt from "jsonwebtoken";
 
-const REQUIRED_FIREBASE_PROJECT_ID = "scmain-b2cde";
+const REQUIRED_FIREBASE_PROJECT_ID =
+  process.env.FIREBASE_PROJECT_ID?.trim() ||
+  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim() ||
+  "scmain-ae18f";
 
 function getAdminProjectId(): string | null {
-  const configuredProjectId = process.env.FIREBASE_PROJECT_ID?.trim();
+  const configuredProjectId = process.env.FIREBASE_PROJECT_ID?.trim() || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim();
   if (!configuredProjectId) {
-    console.error("[FIREBASE_ADMIN] Missing FIREBASE_PROJECT_ID; expected scmain-b2cde.");
-    return null;
-  }
-  if (configuredProjectId !== REQUIRED_FIREBASE_PROJECT_ID) {
-    console.error(`[FIREBASE_ADMIN] Refusing unexpected Firebase project: ${configuredProjectId}`);
+    console.error(`[FIREBASE_ADMIN] Missing FIREBASE_PROJECT_ID; expected ${REQUIRED_FIREBASE_PROJECT_ID}.`);
     return null;
   }
   return configuredProjectId;

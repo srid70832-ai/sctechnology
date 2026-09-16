@@ -14,6 +14,7 @@ import {
 import { db } from "@/lib/firebase";
 import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
 import { ProjectItem, slugify } from "@/lib/platform-models";
+import { notifyIndexNow, publicContentUrl } from "@/lib/indexnow";
 
 export const dynamic = "force-dynamic";
 
@@ -121,6 +122,9 @@ export async function POST(req: Request) {
 
     const cleaned = removeUndefinedValues(payload);
     await setDoc(docRef, cleaned, { merge: true });
+    if (payload.status === "PUBLISHED") {
+      notifyIndexNow(publicContentUrl("projects", projectSlug));
+    }
 
     return NextResponse.json({
       success: true,
@@ -152,6 +156,7 @@ export async function DELETE(req: Request) {
     }
 
     await deleteDoc(doc(db, COLLECTIONS.PROJECTS, id));
+    notifyIndexNow(publicContentUrl("projects", id));
     return NextResponse.json({ success: true, message: "Project deleted successfully." });
   } catch (error: any) {
     console.error("Admin DELETE Project Error:", error);

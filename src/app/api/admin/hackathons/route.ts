@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { HackathonItem, slugify } from "@/lib/platform-models";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { removeUndefinedValues } from "@/lib/firestore";
+import { notifyIndexNow, publicContentUrl } from "@/lib/indexnow";
 
 export const dynamic = "force-dynamic";
 
@@ -147,7 +148,10 @@ export async function POST(req: Request) {
       status,
     } = body;
 
-    if (!title || !shortDescription || !startDate || !endDate || !registrationDeadline) {
+    const resolvedShortDesc = shortDescription || body.description || body.tagLine || "";
+    const resolvedFullDesc = fullDescription || body.description || resolvedShortDesc;
+
+    if (!title || !resolvedShortDesc || !startDate || !endDate || !registrationDeadline) {
       return NextResponse.json(
         { error: "Title, description, start date, end date, and registration deadline are required." },
         { status: 400 }
@@ -162,8 +166,8 @@ export async function POST(req: Request) {
       return [];
     };
 
-    const fee = Number(registrationFee) >= 0 ? Number(registrationFee) : 35;
-    const pool = Number(prizePool) >= 0 ? Number(prizePool) : 50000;
+    const fee = Number(registrationFee ?? body.entryFee ?? 0);
+    const pool = Number(prizePool ?? 50000);
     const minTeam = Number(minTeamSize) > 0 ? Number(minTeamSize) : 1;
     const maxTeam = Number(maxTeamSize) >= minTeam ? Number(maxTeamSize) : 4;
     const mode = registrationMode === "INDIVIDUAL_ONLY" || registrationMode === "TEAM_ONLY" ? registrationMode : "BOTH";
@@ -178,8 +182,8 @@ export async function POST(req: Request) {
       title: String(title).trim(),
       slug: hackathonSlug,
       bannerUrl: bannerUrl ? String(bannerUrl).trim() : null,
-      shortDescription: String(shortDescription).trim(),
-      fullDescription: fullDescription ? String(fullDescription).trim() : String(shortDescription).trim(),
+      shortDescription: String(resolvedShortDesc).trim(),
+      fullDescription: String(resolvedFullDesc).trim(),
       startDate: toISOStringSafe(startDate),
       startTime: startTime ? String(startTime).trim() : "09:00 AM",
       endDate: toISOStringSafe(endDate),
@@ -209,7 +213,7 @@ export async function POST(req: Request) {
 
     const firestore = getAdminDb();
     if (!firestore) {
-      return NextResponse.json({ error: "Firebase Admin SDK is not configured for project scmain-b2cde." }, { status: 503 });
+      return NextResponse.json({ error: `Firebase Admin SDK is not configured for project ${process.env.FIREBASE_PROJECT_ID || "scmain-ae18f"}.` }, { status: 503 });
     }
 
     const collectionRef = firestore.collection("hackathons");
@@ -237,8 +241,11 @@ export async function POST(req: Request) {
     }
 
     const finalResult: any = { id: verifiedSnapshot.id, ...verifiedSnapshot.data() };
+    if (finalResult.status === "PUBLISHED") {
+      notifyIndexNow(publicContentUrl("hackathons", finalResult.slug || finalResult.id));
+    }
 
-    console.log(`[FIRESTORE_HACKATHON_WRITE] projectId=scmain-b2cde database=(default) collection=hackathons documentId=${verifiedSnapshot.id}`);
+    console.log(`[FIRESTORE_HACKATHON_WRITE] projectId=${process.env.FIREBASE_PROJECT_ID || "scmain-ae18f"} database=(default) collection=hackathons documentId=${verifiedSnapshot.id}`);
     console.log(`[ADMIN_HACKATHONS] Write & Read-back succeeded for hackathon ID: ${finalResult.id}, Title: ${finalResult.title}, Status: ${finalResult.status}`);
 
     return NextResponse.json({
@@ -278,6 +285,7 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Firebase Admin SDK is not configured." }, { status: 503 });
     }
     await adminDb.collection("hackathons").doc(id).delete();
+    notifyIndexNow(publicContentUrl("hackathons", id));
 
     return NextResponse.json({ success: true, message: "Hackathon deleted successfully." });
   } catch (error: any) {

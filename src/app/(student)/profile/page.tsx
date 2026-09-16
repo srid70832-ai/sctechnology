@@ -575,12 +575,17 @@ function ProfileContent() {
       const studentRef = doc(db, "students", uid);
       await setDoc(studentRef, sanitizedData, { merge: true });
 
-      await refresh();
-      success("Profile saved successfully!");
+      try {
+        await refresh();
+      } catch {}
 
-      if (isMandatoryMode || !studentProfile?.profileCompleted) {
-        setShowSuccessModal(true);
-      }
+      success("Profile saved successfully! Redirecting to Dashboard...");
+
+      const redirectParam = searchParams?.get("redirect");
+      const targetUrl = redirectParam && !redirectParam.startsWith("/profile") ? redirectParam : "/dashboard";
+      setTimeout(() => {
+        window.location.href = targetUrl;
+      }, 700);
     } catch (err: any) {
       console.error("Profile save error:", err);
       if (err?.code === "permission-denied" || err?.message?.includes("permission")) {

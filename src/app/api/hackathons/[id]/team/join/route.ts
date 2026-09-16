@@ -17,6 +17,8 @@ import { generateRegistrationNo } from "@/lib/utils";
 import { isDeadlinePassed } from "@/lib/platform-models";
 import { verifyRazorpaySignature } from "@/lib/payment";
 import { processReferralConversion } from "@/lib/referrals/service";
+import { resolveHackathon } from "@/lib/hackathons/resolve-hackathon";
+import { logHackathonOperation } from "@/lib/hackathons/diagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -39,12 +41,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
 
     // 1. Fetch Hackathon details
-    const hackathon = await prisma.hackathon.findFirst({
-      where: { OR: [{ id: hackathonId }, { slug: hackathonId }] },
-    });
+    const hackathon = await resolveHackathon(hackathonId);
 
     if (!hackathon) {
-      return NextResponse.json({ error: "Hackathon not found" }, { status: 404 });
+      logHackathonOperation({ channel: "HACKATHON_REGISTRATION", hackathonId, userId: session.userId, route: "/api/hackathons/[id]/team/join", operation: "resolve-hackathon", result: "not-found" });
+      return NextResponse.json({ error: "Hackathon not found", hackathonId }, { status: 404 });
     }
 
     // 2. Deadline check
@@ -69,12 +70,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         if (t.id === targetTeam.id) {
           return NextResponse.json(
             { error: "You are already a member of this team." },
-            { status: 400 }
+            { status: 409 }
           );
         }
         return NextResponse.json(
           { error: `You are already registered in team "${t.name}" (${t.teamId}) for this hackathon` },
-          { status: 400 }
+          { status: 409 }
         );
       }
     }
@@ -99,7 +100,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (existingPrismaReg) {
       return NextResponse.json(
         { error: "You are already registered for this hackathon." },
-        { status: 400 }
+        { status: 409 }
       );
     }
 
@@ -174,7 +175,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           userId: session.userId,
           registrationNo: regNo,
           paymentId: verifiedPaymentRecordId,
-          status: "CONFIRMED",
+          status: memberPaymentStatus === "PAID" || !isPaidHackathon ? "CONFIRMED" : "PENDING",
         },
       });
     } catch (prismaErr) {
@@ -207,6 +208,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       memberPaymentStatus,
     });
   } catch (error: any) {
+    logHackathonOperation({ channel: "HACKATHON_REGISTRATION", hackathonId: params.id, route: "/api/hackathons/[id]/team/join", operation: "join-team", result: "error" });
     console.error("Join Hackathon Team Error:", error);
     return NextResponse.json({ error: error?.message || "Failed to join team" }, { status: 500 });
   }

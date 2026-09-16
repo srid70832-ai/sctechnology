@@ -63,6 +63,7 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
   const [teamName, setTeamName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [registering, setRegistering] = useState(false);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [payingMember, setPayingMember] = useState(false);
 
   // Submission form state
@@ -167,22 +168,36 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
 
   const handleIndividualRegister = async () => {
     const currentUser = auth.currentUser;
+    setRegistrationError(null);
     setRegistering(true);
     try {
       const token = await currentUser?.getIdToken();
 
-      // If paid hackathon, process Razorpay test payment
-      if (hackathon.entryFee > 0 && typeof window !== "undefined" && window.Razorpay) {
+      if (hackathon.entryFee > 0) {
+        if (typeof window === "undefined" || !window.Razorpay) {
+          const message = "Payment gateway is still loading. Please retry in a moment.";
+          setRegistrationError(message);
+          error(message);
+          return;
+        }
+
         const orderRes = await fetch(`/api/hackathons/${hackathon.id}/team/member-payment`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({ action: "create-order" }),
+          body: JSON.stringify({ action: "create-individual-order" }),
         });
 
         const orderData = await orderRes.json();
+        if (!orderRes.ok || !orderData.requiresPayment || !orderData.orderId) {
+          const message = orderData.error || "Failed to initialize payment order";
+          setRegistrationError(message);
+          error(message);
+          return;
+        }
+
         if (orderData.requiresPayment && orderData.orderId) {
           const rzp = new window.Razorpay({
             key: orderData.keyId,
@@ -216,6 +231,7 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
                 setShowRegModal(false);
                 fetchDetail();
               } else {
+                setRegistrationError(verifyData.error || "Payment verification failed");
                 error(verifyData.error || "Payment verification failed");
               }
             },
@@ -237,12 +253,15 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
       const data = await res.json();
       if (res.ok) {
         success(`Successfully registered! Registration No: ${data.registrationNo}`);
+        setRegistrationError(null);
         setShowRegModal(false);
         fetchDetail();
       } else {
+        setRegistrationError(data.error || "Registration failed");
         error(data.error || "Registration failed");
       }
-    } catch {
+    } catch (err: any) {
+      setRegistrationError(err?.message || "Registration failed");
       error("Registration failed");
     } finally {
       setRegistering(false);
@@ -256,6 +275,7 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
       return;
     }
 
+    setRegistrationError(null);
     setRegistering(true);
     try {
       const token = await auth.currentUser?.getIdToken();
@@ -274,9 +294,11 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
         setActiveTab("team");
         fetchDetail();
       } else {
+        setRegistrationError(data.error || "Failed to create team");
         error(data.error || "Failed to create team");
       }
-    } catch {
+    } catch (err: any) {
+      setRegistrationError(err?.message || "Failed to create team");
       error("Failed to create team");
     } finally {
       setRegistering(false);
@@ -290,6 +312,7 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
       return;
     }
 
+    setRegistrationError(null);
     setRegistering(true);
     try {
       const token = await auth.currentUser?.getIdToken();
@@ -308,9 +331,11 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
         setActiveTab("team");
         fetchDetail();
       } else {
+        setRegistrationError(data.error || "Failed to join team");
         error(data.error || "Failed to join team");
       }
-    } catch {
+    } catch (err: any) {
+      setRegistrationError(err?.message || "Failed to join team");
       error("Failed to join team");
     } finally {
       setRegistering(false);
@@ -1171,6 +1196,13 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
                 ✕
               </button>
             </div>
+
+            {registrationError && (
+              <div className="flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200" role="alert">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{registrationError}</span>
+              </div>
+            )}
 
             {regMode === "CHOICE" && (
               <div className="space-y-4">

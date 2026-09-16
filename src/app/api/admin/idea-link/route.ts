@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllIdeasForAdmin, getAllConnectionsForAdmin } from "@/lib/idea-link-service";
+import { requireAdmin } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   try {
+    const { authorized, errorResponse } = await requireAdmin(req);
+    if (!authorized) return errorResponse;
     const [ideasData, connData] = await Promise.all([
       getAllIdeasForAdmin(),
       getAllConnectionsForAdmin(),

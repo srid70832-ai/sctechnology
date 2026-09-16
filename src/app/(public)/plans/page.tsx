@@ -171,11 +171,11 @@ export default function PlansPage() {
 
       if (typeof window !== "undefined" && (window as any).Razorpay) {
         const options = {
-          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || orderData.keyId || "rzp_test_SyQsxxuaEPVQuS",
+          key: orderData.keyId,
           amount: orderData.amount,
           currency: orderData.currency || "INR",
           name: "SC TECH",
-          description: `${plan.name} (${billingCycle.toLowerCase()}) Subscription [TEST MODE]`,
+          description: `${plan.name} (${billingCycle.toLowerCase()}) Subscription`,
           image: "/logo.png",
           order_id: orderData.orderId,
           handler: async function (response: any) {
@@ -375,7 +375,7 @@ export default function PlansPage() {
     },
     {
       q: "What payment methods are supported in Razorpay?",
-      a: "We support real-time UPI (Google Pay, PhonePe, Paytm), Credit Cards, Debit Cards, Net Banking, and Scan & Pay QR securely powered by Razorpay TEST Mode.",
+      a: "We support real-time UPI (Google Pay, PhonePe, Paytm), Credit Cards, Debit Cards, Net Banking, and Scan & Pay QR securely powered by Razorpay.",
     },
   ];
 
@@ -600,7 +600,7 @@ export default function PlansPage() {
 
           <div className="mt-8 flex items-center justify-center gap-2 text-xs text-slate-400">
             <ShieldCheck className="w-4 h-4 text-blue-400" />
-            <span>Razorpay TEST Checkout & Dynamic QR • 100% Server Verified • Instant Dashboard Sync</span>
+            <span>Razorpay Checkout & Dynamic QR • 100% Server Verified • Instant Dashboard Sync</span>
           </div>
         </section>
 

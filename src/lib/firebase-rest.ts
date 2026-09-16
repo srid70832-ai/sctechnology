@@ -1,7 +1,7 @@
 const projectId =
   process.env.FIREBASE_PROJECT_ID ||
   process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
-  "scmain-b2cde";
+  "scmain-ae18f";
 
 function toFirestoreValue(val: any): any {
   if (val === undefined || val === null) {

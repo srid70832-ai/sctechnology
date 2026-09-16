@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { submitFeedback } from "@/lib/firestore";
 import { MessageSquare, Star, X, CheckCircle2, Loader2, Send } from "lucide-react";
 
 export const FeedbackWidget = () => {
@@ -34,7 +33,10 @@ export const FeedbackWidget = () => {
     setSubmitError(null);
 
     try {
-      const feedbackId = await submitFeedback({
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
         userId: anonymous ? "ANONYMOUS" : (user?.userId || "GUEST"),
         userName: anonymous ? "Anonymous Student" : (user?.name || "Guest"),
         userEmail: anonymous ? "" : (user?.email || ""),
@@ -43,7 +45,11 @@ export const FeedbackWidget = () => {
         message,
         pageUrl: typeof window !== "undefined" ? window.location.href : pathname,
         anonymous,
+        }),
       });
+
+      const result = await response.json().catch(() => null);
+      const feedbackId = response.ok ? result?.id : null;
 
       if (feedbackId) {
         setSubmitted(true);

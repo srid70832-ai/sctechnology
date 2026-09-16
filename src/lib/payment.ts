@@ -1,14 +1,40 @@
 import crypto from "crypto";
 import Razorpay from "razorpay";
 
-const key_id = process.env.RAZORPAY_KEY_ID || "rzp_test_SyQsxxuaEPVQuS";
-const key_secret = process.env.RAZORPAY_KEY_SECRET || "GmpmUcRIu5oK6cwkaRsRC3mC";
+function getRazorpayConfig(): { keyId: string; keySecret: string; mode: "LIVE" | "TEST" } {
+  const keyId = process.env.RAZORPAY_KEY_ID?.trim() || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.trim();
+  const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
 
-// Initialize official Razorpay instance
-export const razorpay = new Razorpay({
-  key_id,
-  key_secret,
-});
+  if (!keyId || !keySecret || !/^rzp_(live|test)_/.test(keyId)) {
+    throw new Error("Razorpay configuration is missing or invalid. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET with a valid Razorpay key pair.");
+  }
+
+  const mode: "LIVE" | "TEST" = keyId.startsWith("rzp_live_") ? "LIVE" : "TEST";
+  if (process.env.VERCEL_ENV === "production" && mode !== "LIVE") {
+    throw new Error("Production Razorpay configuration must use a live key. Refusing to run checkout in test mode.");
+  }
+
+  return { keyId, keySecret, mode };
+}
+
+export function getRazorpayMode(): "LIVE" | "TEST" {
+  return getRazorpayConfig().mode;
+}
+
+export function getRazorpayKeyId(): string {
+  return getRazorpayConfig().keyId;
+}
+
+const initialKeyId = process.env.RAZORPAY_KEY_ID?.trim() || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.trim();
+if (initialKeyId && /^rzp_(live|test)_/.test(initialKeyId)) {
+  console.info(`RAZORPAY_RUNTIME_MODE=${initialKeyId.startsWith("rzp_live_") ? "LIVE" : "TEST"}`);
+  console.info(`RAZORPAY_KEY_PREFIX=${initialKeyId.match(/^rzp_(live|test)_/)?.[0]}`);
+}
+
+function getRazorpayClient() {
+  const { keyId, keySecret } = getRazorpayConfig();
+  return new Razorpay({ key_id: keyId, key_secret: keySecret });
+}
 
 /**
  * Creates a real Razorpay order with currency INR (in paise)
@@ -22,30 +48,28 @@ export async function createRazorpayOrder({
   receipt: string;
   notes?: Record<string, string>;
 }) {
+  let order;
   try {
-    const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // amount in lowest denomination (paise)
-      currency: "INR",
-      receipt,
-      notes,
-    });
-    return {
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      status: order.status,
-    };
-  } catch (error: any) {
-    console.warn("Razorpay API order creation error, using deterministic gateway fallback:", error?.message || error);
-    // Deterministic fallback if offline/mock
-    const fallbackOrderId = `order_${receipt}_${Date.now()}`;
-    return {
-      orderId: fallbackOrderId,
+    order = await getRazorpayClient().orders.create({
       amount: Math.round(amount * 100),
       currency: "INR",
-      status: "created",
-    };
+      receipt,
+      notes: { ...notes, paymentMode: getRazorpayMode() },
+    });
+  } catch (error: any) {
+    console.error("Razorpay order creation failed", {
+      code: error?.error?.code,
+      description: error?.error?.description,
+      status: error?.statusCode ?? error?.status,
+    });
+    throw error;
   }
+  return {
+    orderId: order.id,
+    amount: order.amount,
+    currency: order.currency,
+    status: order.status,
+  };
 }
 
 /**
@@ -60,18 +84,51 @@ export function verifyRazorpaySignature({
   paymentId: string;
   signature: string;
 }): boolean {
+  const { keySecret } = getRazorpayConfig();
   if (!signature) return false;
-  if (signature === "verified_signature_token" || signature.startsWith("test_")) return true;
 
   try {
     const generatedSignature = crypto
-      .createHmac("sha256", key_secret)
+      .createHmac("sha256", keySecret)
       .update(`${orderId}|${paymentId}`)
       .digest("hex");
 
-    return generatedSignature === signature;
+    return crypto.timingSafeEqual(Buffer.from(generatedSignature), Buffer.from(signature));
   } catch (err) {
     console.error("Signature verification error:", err);
     return false;
   }
+}
+
+/**
+ * Verifies the signature and confirms the payment/order state with Razorpay.
+ */
+export async function verifyRazorpayPayment({
+  orderId,
+  paymentId,
+  signature,
+}: {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+}) {
+  if (!verifyRazorpaySignature({ orderId, paymentId, signature })) {
+    throw new Error("Invalid Razorpay payment signature");
+  }
+
+  const client = getRazorpayClient();
+  const [payment, order] = await Promise.all([
+    client.payments.fetch(paymentId),
+    client.orders.fetch(orderId),
+  ]);
+
+  if (payment.order_id !== orderId) {
+    throw new Error("Razorpay payment does not belong to the supplied order");
+  }
+
+  if (payment.status !== "captured" || order.status !== "paid") {
+    throw new Error(`Razorpay payment is not captured (payment=${payment.status}, order=${order.status})`);
+  }
+
+  return { payment, order };
 }

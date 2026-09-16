@@ -2,16 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { UserProjectTask, calculateStipendEligibility } from "@/lib/project-tasks-service";
+import { getServerSession } from "@/lib/auth";
+import { hasRealWorldProjectsAccess, projectAccessError } from "@/lib/real-world-project-access";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const session = await getServerSession(req);
+    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
+    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
+
     const projectId = params.id;
     const body = await req.json();
     const { 
-      userId, 
+      userId: _requestedUserId, 
       taskNumber, 
       githubRepoUrl, 
       githubCommitUrl, 
@@ -20,6 +26,7 @@ export async function POST(
       screenshotUrls 
     } = body;
 
+    const userId = session?.userId || "";
     if (!userId || !taskNumber || !explanation) {
       return NextResponse.json(
         { error: "User ID, Task Number, and technical explanation are required." },

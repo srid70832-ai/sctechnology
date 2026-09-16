@@ -8,10 +8,10 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(req);
     const { searchParams } = new URL(req.url);
-    const studentId = session?.userId || searchParams.get("studentId") || searchParams.get("userId");
+    const studentId = session?.userId;
 
-    if (!studentId) {
-      return NextResponse.json({ error: "studentId is required" }, { status: 400 });
+    if (!session || !studentId) {
+      return NextResponse.json({ error: "Authentication is required" }, { status: 401 });
     }
 
     const [ideas, connections] = await Promise.all([

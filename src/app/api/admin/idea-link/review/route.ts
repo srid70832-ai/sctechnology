@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminReviewIdea } from "@/lib/idea-link-service";
+import { requireAdmin } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
+    const { authorized, session, errorResponse } = await requireAdmin(req);
+    if (!authorized) return errorResponse;
     const body = await req.json();
     const { ideaId, status, decision, adminNotes, adminName } = body;
     const effDecision = decision || status;
@@ -15,7 +18,8 @@ export async function POST(req: NextRequest) {
       ideaId,
       decision: effDecision,
       adminNotes,
-      adminName: adminName || "Charudeshna & Sridharan (SC TECH Venture Board)",
+      adminId: session?.userId,
+      adminName: adminName || session?.name || "SC TECH Admin",
     });
 
     return NextResponse.json({

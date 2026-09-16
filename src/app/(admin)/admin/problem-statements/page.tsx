@@ -3,8 +3,6 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { collection, getDocs, doc, deleteDoc, query, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import { 
@@ -41,6 +39,7 @@ export default function AdminProblemStatementsPage() {
 
   const [problems, setProblems] = useState<ProblemStatement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -62,12 +61,15 @@ export default function AdminProblemStatementsPage() {
 
   const loadProblems = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const token = await firebaseUser?.getIdToken();
       const list = await getAllProblemStatementsAdmin(statusFilter, token);
       setProblems(list);
     } catch (err) {
       console.error("Error loading problem statements:", err);
+      setProblems([]);
+      setLoadError(err instanceof Error ? err.message : "Unable to load problem statements");
       error("Failed to load problem statements");
     } finally {
       setLoading(false);
@@ -259,6 +261,19 @@ export default function AdminProblemStatementsPage() {
         <div className="py-20 text-center text-slate-400 flex items-center justify-center gap-3">
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
           <span>Loading problem statements...</span>
+        </div>
+      ) : loadError ? (
+        <div className="p-16 rounded-3xl bg-rose-950/20 border border-rose-500/30 text-center space-y-4">
+          <FileCode2 className="w-10 h-10 text-rose-400 mx-auto" />
+          <h3 className="text-base font-bold text-white">Unable to load problem statements</h3>
+          <p className="text-xs text-rose-200/80 max-w-xl mx-auto break-words">{loadError}</p>
+          <button
+            type="button"
+            onClick={loadProblems}
+            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold"
+          >
+            Retry
+          </button>
         </div>
       ) : filteredProblems.length === 0 ? (
         <div className="p-16 rounded-3xl bg-slate-900/40 border border-slate-800 text-center space-y-4">

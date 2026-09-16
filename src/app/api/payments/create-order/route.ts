@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyFirebaseToken } from "@/lib/firebase-admin";
 import { getServerSession } from "@/lib/auth";
-import { createRazorpayOrder } from "@/lib/payment";
+import { createRazorpayOrder, getRazorpayKeyId, getRazorpayMode } from "@/lib/payment";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, getDocs, query, where, serverTimestamp } from "firebase/firestore";
 import { DEFAULT_PLANS, getOfferFromFirestore, calculatePlanPrice } from "@/lib/plans";
@@ -100,7 +100,7 @@ export async function POST(req: Request) {
         planId: planId || "",
         billingCycle: billingCycle || "MONTHLY",
         hackathonId: hackathonId || "",
-        mode: "TEST",
+        mode: getRazorpayMode(),
       },
     });
 
@@ -117,7 +117,7 @@ export async function POST(req: Request) {
         amount: calculatedAmount,
         currency: "INR",
         status: "CREATED",
-        mode: "TEST",
+        mode: getRazorpayMode(),
         createdAt: serverTimestamp(),
       });
     } catch (dbErr) {
@@ -129,7 +129,7 @@ export async function POST(req: Request) {
       orderId: order.orderId,
       amount: order.amount, // in paise
       currency: order.currency,
-      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "rzp_test_SyQsxxuaEPVQuS",
+      keyId: getRazorpayKeyId(),
       planName,
     });
   } catch (error: any) {

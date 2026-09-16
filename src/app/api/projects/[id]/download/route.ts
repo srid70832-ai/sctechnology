@@ -2,15 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { getProjectBySlug } from "@/lib/projects-service";
+import { getServerSession } from "@/lib/auth";
+import { hasRealWorldProjectsAccess, projectAccessError } from "@/lib/real-world-project-access";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const session = await getServerSession(req);
+    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
+    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
+
     const projectId = params.id;
     const body = await req.json();
-    const { userId, userEmail } = body;
+    const userId = session?.userId;
+    const userEmail = session?.email || "";
 
     const project = await getProjectBySlug(projectId);
     if (!project) {

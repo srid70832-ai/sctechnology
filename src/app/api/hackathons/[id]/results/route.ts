@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getHackathonResults } from "@/lib/hackathons/results-service";
 import { prisma } from "@/lib/prisma";
+import { resolveHackathon } from "@/lib/hackathons/resolve-hackathon";
 
 export const dynamic = "force-dynamic";
 
@@ -10,9 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
     const hackathonId = params.id;
-    const hackathon = await prisma.hackathon.findFirst({
-      where: { OR: [{ id: hackathonId }, { slug: hackathonId }] },
-    });
+    const hackathon = await resolveHackathon(hackathonId);
 
     if (!hackathon) {
       return NextResponse.json({ error: "Hackathon not found" }, { status: 404 });

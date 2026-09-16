@@ -14,6 +14,7 @@ import {
 import { db } from "@/lib/firebase";
 import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
 import { CompanyItem, slugify } from "@/lib/platform-models";
+import { notifyIndexNow, publicContentUrl } from "@/lib/indexnow";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,9 @@ export async function POST(req: Request) {
 
     const cleaned = removeUndefinedValues(payload);
     await setDoc(docRef, cleaned, { merge: true });
+    if (payload.status === "PUBLISHED") {
+      notifyIndexNow(publicContentUrl("companies", companyId));
+    }
 
     return NextResponse.json({
       success: true,
@@ -132,6 +136,7 @@ export async function DELETE(req: Request) {
     }
 
     await deleteDoc(doc(db, COLLECTIONS.COMPANIES, id));
+    notifyIndexNow(publicContentUrl("companies", id));
     return NextResponse.json({ success: true, message: "Company deleted successfully." });
   } catch (error: any) {
     console.error("Admin DELETE Company Error:", error);

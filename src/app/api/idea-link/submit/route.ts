@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { submitIdea } from "@/lib/idea-link-service";
+import { requireAuth } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
+    const { authorized, session, errorResponse } = await requireAuth(req);
+    if (!authorized || !session) return errorResponse;
     const body = await req.json();
     const {
-      studentId,
       studentName,
       studentEmail,
       studentCollege,
@@ -28,17 +30,17 @@ export async function POST(req: NextRequest) {
     const effProblem = problem || body.problemStatement || body.problem_statement || "";
     const effSolution = solution || body.proposedSolution || body.solution_statement || "";
 
-    if (!studentId || !title || !effProblem || !effSolution || !industry) {
+    if (!title || !effProblem || !effSolution || !industry) {
       return NextResponse.json(
-        { error: "Student ID, title, problem statement, proposed solution, and industry are required." },
+        { error: "Title, problem statement, proposed solution, and industry are required." },
         { status: 400 }
       );
     }
 
     const result = await submitIdea({
-      studentId,
-      studentName: studentName || "Student Innovator",
-      studentEmail: studentEmail || "",
+      studentId: session.userId,
+      studentName: studentName || session.name || "Profile not completed",
+      studentEmail: studentEmail || session.email,
       studentCollege,
       studentPhone,
       title,

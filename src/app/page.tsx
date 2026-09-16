@@ -1,4 +1,6 @@
 import React from "react";
+import type { Metadata } from "next";
+import Script from "next/script";
 import { Navbar } from "@/components/ui/Navbar";
 import { Footer } from "@/components/ui/Footer";
 import { HeroSection } from "@/components/landing/HeroSection";
@@ -10,6 +12,26 @@ import { PricingPlans } from "@/components/landing/PricingPlans";
 import { prisma } from "@/lib/prisma";
 import { REAL_WORLD_PROJECTS } from "@/lib/projects-data";
 import { DEFAULT_PLANS } from "@/lib/plans";
+
+const SITE_URL = "https://sctech.vercel.app";
+
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "SC TECH",
+  url: "https://sctech.vercel.app/",
+  logo: "https://sctech.vercel.app/sc-tech-logo.png",
+  description:
+    "SC TECH is an all-in-one platform for internships, hackathons, real-world projects, online courses and career opportunities.",
+};
+
+export const metadata: Metadata = {
+  title: "SC TECH – Build Skills. Build Projects. Build Your Career.",
+  description:
+    "SC TECH is an all-in-one platform for internships, hackathons, real-world projects, online courses and career opportunities.",
+  alternates: { canonical: "/" },
+  openGraph: { url: `${SITE_URL}/` },
+};
 
 export const dynamic = "force-dynamic";
 
@@ -221,6 +243,18 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#070B14] text-white flex flex-col selection:bg-blue-600 selection:text-white">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            name: "SC TECH",
+            url: SITE_URL,
+            logo: `${SITE_URL}/logo.png`,
+          }),
+        }}
+      />
       <Navbar />
 
       <main className="flex-1">

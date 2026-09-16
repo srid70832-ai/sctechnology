@@ -918,8 +918,8 @@ export async function generateSqlFromPrompt(prompt: string, schema: string) {
       "npm run dev"
     ],
     environmentVariables: {
-      "NEXT_PUBLIC_RAZORPAY_KEY_ID": "rzp_test_SyQsxxuaEPVQuS",
-      "RAZORPAY_KEY_SECRET": "GmpmUcRIu5oK6cwkaRsRC3mC",
+      "NEXT_PUBLIC_RAZORPAY_KEY_ID": "rzp_live_your_public_key_id",
+      "RAZORPAY_KEY_SECRET": "your_server_only_key_secret",
       "FIREBASE_PROJECT_ID": "scmain-b2cde"
     },
     databaseSchema: `Collections:
@@ -1635,7 +1635,7 @@ export async function categorizeTransaction(description: string): Promise<string
       "npm run dev"
     ],
     environmentVariables: {
-      "NEXT_PUBLIC_RAZORPAY_KEY_ID": "rzp_test_SyQsxxuaEPVQuS",
+      "NEXT_PUBLIC_RAZORPAY_KEY_ID": "rzp_live_your_public_key_id",
       "FIREBASE_PROJECT_ID": "scmain-b2cde"
     },
     databaseSchema: `Collections:

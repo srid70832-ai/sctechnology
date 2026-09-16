@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/providers/ToastProvider";
 import { auth } from "@/lib/firebase";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function AdminStudentsPage() {
   const { error } = useToast();
@@ -24,9 +26,11 @@ export default function AdminStudentsPage() {
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadStudents = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const token = await auth.currentUser?.getIdToken();
       const res = await fetch("/api/admin/students", {
@@ -36,10 +40,15 @@ export default function AdminStudentsPage() {
         const data = await res.json();
         setStudents(data.students || []);
       } else {
-        error("Failed to load students directory");
+        const data = await res.json().catch(() => ({}));
+        const message = data.error || `Student directory request failed (${res.status})`;
+        setLoadError(message);
+        error(message);
       }
-    } catch {
-      error("Network error");
+    } catch (err: any) {
+      const message = err?.message || "Network error while loading student directory";
+      setLoadError(message);
+      error(message);
     } finally {
       setLoading(false);
     }
@@ -47,6 +56,15 @@ export default function AdminStudentsPage() {
 
   useEffect(() => {
     loadStudents();
+    const unsubscribe = onSnapshot(
+      collection(db, "students"),
+      () => { void loadStudents(); },
+      (snapshotError) => {
+        console.error("Admin student realtime listener failed:", snapshotError);
+        setLoadError(`Realtime student sync failed: ${snapshotError.message}`);
+      }
+    );
+    return unsubscribe;
   }, []);
 
   const filteredStudents = students.filter((s) => {
@@ -107,6 +125,12 @@ export default function AdminStudentsPage() {
         <div className="py-20 flex items-center justify-center gap-3 text-slate-400">
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
           <span>Loading verified student records...</span>
+        </div>
+      ) : loadError ? (
+        <div className="py-16 text-center rounded-3xl bg-rose-950/20 border border-rose-800/80 space-y-3">
+          <Users className="w-10 h-10 text-rose-500 mx-auto" />
+          <h3 className="text-sm font-bold text-white">Unable to load student directory</h3>
+          <p className="text-xs text-rose-300">{loadError}</p>
         </div>
       ) : filteredStudents.length === 0 ? (
         <div className="py-16 text-center rounded-3xl bg-slate-900/40 border border-slate-800/80 space-y-3">

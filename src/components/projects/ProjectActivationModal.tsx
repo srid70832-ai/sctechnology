@@ -18,6 +18,7 @@ import {
 import { useAuth } from "@/components/providers/AuthProvider";
 import { ProjectData } from "@/lib/projects-data";
 import { ProjectDurationOption } from "@/lib/project-lifecycle-service";
+import { DEFAULT_PLANS, PlanData } from "@/lib/plans";
 
 interface ProjectActivationModalProps {
   isOpen: boolean;
@@ -40,6 +41,10 @@ export function ProjectActivationModal({
   const [activeProjectError, setActiveProjectError] = useState<string | null>(null);
   const [isNextProject, setIsNextProject] = useState(false);
   const [checkingActive, setCheckingActive] = useState(true);
+  const [subscriptionRequired, setSubscriptionRequired] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<PlanData>(DEFAULT_PLANS.find((plan) => plan.code === "PLUS") || DEFAULT_PLANS[2]);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [subscriptionSuccess, setSubscriptionSuccess] = useState<{ planName: string; amount: number; startedAt: string; expiresAt: string } | null>(null);
 
   useEffect(() => {
     async function checkStatus() {
@@ -50,10 +55,19 @@ export function ProjectActivationModal({
 
       setCheckingActive(true);
       setActiveProjectError(null);
+      setSubscriptionRequired(false);
 
       try {
         const uid = user?.userId || firebaseUser?.uid;
         const res = await fetch(`/api/projects/enrollment/active?userId=${uid}`);
+        if (res.status === 401) {
+          router.push(`/login?redirect=/projects/${project?.slug || project?.id || ""}`);
+          return;
+        }
+        if (res.status === 403) {
+          setSubscriptionRequired(true);
+          return;
+        }
         if (res.ok) {
           const json = await res.json();
           if (json.activeEnrollment) {
@@ -71,7 +85,7 @@ export function ProjectActivationModal({
       }
     }
     checkStatus();
-  }, [isOpen, user, firebaseUser]);
+  }, [isOpen, user, firebaseUser, router, project]);
 
   if (!isOpen || !project) return null;
 
@@ -126,6 +140,73 @@ export function ProjectActivationModal({
     }
   };
 
+  const handleSubscriptionCheckout = async () => {
+    const currentUser = firebaseUser;
+    if (!currentUser || selectedPlan.priceMonthly < 399) return;
+
+    setPaymentLoading(true);
+    try {
+      const token = await currentUser.getIdToken(true);
+      const orderResponse = await fetch("/api/payments/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ planId: selectedPlan.code, billingCycle: "MONTHLY" }),
+      });
+      const order = await orderResponse.json();
+      if (!orderResponse.ok) throw new Error(order.error || "Unable to create subscription order");
+      if (!(window as any).Razorpay) throw new Error("Razorpay Checkout is unavailable. Please try again.");
+
+      const razorpay = new (window as any).Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency || "INR",
+        name: "SC TECH",
+        description: `${selectedPlan.name} Monthly Subscription`,
+        image: "/logo.png",
+        order_id: order.orderId,
+        prefill: { name: user?.name || currentUser.displayName || "", email: user?.email || currentUser.email || "" },
+        theme: { color: "#2563EB" },
+        handler: async (response: any) => {
+          try {
+            const verifyToken = await currentUser.getIdToken(true);
+            const verifyResponse = await fetch("/api/payments/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${verifyToken}` },
+              body: JSON.stringify({
+                orderId: response.razorpay_order_id || order.orderId,
+                paymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+              }),
+            });
+            const verified = await verifyResponse.json();
+            if (!verifyResponse.ok) throw new Error(verified.error || "Payment verification failed");
+            setSubscriptionSuccess({
+              planName: verified.subscription?.planName || selectedPlan.name,
+              amount: verified.subscription?.amount || selectedPlan.priceMonthly,
+              startedAt: verified.subscription?.startedAt || new Date().toISOString(),
+              expiresAt: verified.subscription?.expiresAt || new Date(Date.now() + 30 * 86400000).toISOString(),
+            });
+            setSubscriptionRequired(false);
+            setCheckingActive(false);
+          } catch (err: any) {
+            setActiveProjectError(err.message || "Payment verification failed");
+          } finally {
+            setPaymentLoading(false);
+          }
+        },
+        modal: { ondismiss: () => setPaymentLoading(false) },
+      });
+      razorpay.on("payment.failed", (response: any) => {
+        setPaymentLoading(false);
+        setActiveProjectError(response.error?.description || "Payment was not completed.");
+      });
+      razorpay.open();
+    } catch (err: any) {
+      setPaymentLoading(false);
+      setActiveProjectError(err.message || "Unable to start subscription checkout");
+    }
+  };
+
   const DURATION_OPTIONS: { id: ProjectDurationOption; label: string; months: number; desc: string }[] = [
     { id: "1_MONTH", label: "1 Month (Fast Track)", months: 1, desc: "Intensive 30-day sprint for experienced engineers" },
     { id: "2_MONTHS", label: "2 Months (Standard)", months: 2, desc: "Balanced 60-day pace with weekly milestones (Recommended)" },
@@ -163,6 +244,41 @@ export function ProjectActivationModal({
           <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400">
             <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
             <span className="text-xs font-semibold">Verifying active project quota & plan authorization...</span>
+          </div>
+        ) : subscriptionSuccess ? (
+          <div className="space-y-5 text-center">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto"><CheckCircle2 className="w-6 h-6" /></div>
+            <h4 className="text-lg font-black text-white">Subscription activated successfully.</h4>
+            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-left space-y-1.5">
+              <p>Plan: <strong>{subscriptionSuccess.planName}</strong></p>
+              <p>Amount: ₹{subscriptionSuccess.amount}</p>
+              <p>Start: {new Date(subscriptionSuccess.startedAt).toLocaleDateString("en-IN")}</p>
+              <p>Expiry: {new Date(subscriptionSuccess.expiresAt).toLocaleDateString("en-IN")}</p>
+              <p className="font-bold text-emerald-300">Real-World Projects: Unlocked</p>
+            </div>
+            <button type="button" onClick={() => setSubscriptionSuccess(null)} className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold">Continue to Project Activation</button>
+          </div>
+        ) : subscriptionRequired ? (
+          <div className="space-y-5">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/15 text-blue-400 flex items-center justify-center mx-auto"><Lock className="w-6 h-6" /></div>
+              <h4 className="text-lg font-black text-white">Choose a SC TECH plan to unlock Real-World Projects</h4>
+              <p className="text-xs text-slate-300">Real-World Projects are available with Plus, Pro and Career plans.</p>
+            </div>
+            <div className="grid gap-2">
+              {DEFAULT_PLANS.filter((plan) => ["STARTER", "PLUS", "PRO", "CAREER"].includes(plan.code)).map((plan) => {
+                const eligible = plan.priceMonthly >= 399;
+                const selected = selectedPlan.code === plan.code;
+                return (
+                  <button key={plan.code} type="button" onClick={() => eligible && setSelectedPlan(plan)} className={`text-left p-3 rounded-xl border ${selected ? "border-blue-500 bg-blue-500/10" : "border-slate-800 bg-slate-950"} ${!eligible ? "opacity-70" : ""}`}>
+                    <div className="flex items-center justify-between"><span className="text-sm font-bold text-white">{plan.name} — ₹{plan.priceMonthly}/month</span><span className={`text-[11px] font-bold ${eligible ? "text-emerald-400" : "text-slate-500"}`}>Projects Access: {eligible ? "Included" : "Not included"}</span></div>
+                  </button>
+                );
+              })}
+            </div>
+            <button type="button" disabled={paymentLoading} onClick={handleSubscriptionCheckout} className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold disabled:opacity-50">
+              {paymentLoading ? "Opening secure checkout..." : `Choose ${selectedPlan.name} – ₹${selectedPlan.priceMonthly}/month`}
+            </button>
           </div>
         ) : activeProjectError ? (
           /* BLOCKED: ACTIVE PROJECT ALREADY EXISTS */

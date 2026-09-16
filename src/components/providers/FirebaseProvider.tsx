@@ -8,7 +8,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     initAnalytics()
       .then((analytics) => {
         if (analytics) {
-          console.log("Firebase Analytics initialized (scmain-b2cde)");
+          console.log("Firebase Analytics initialized (scmain-ae18f)");
         }
       })
       .catch((err) => {

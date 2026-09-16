@@ -74,10 +74,10 @@ export default function AdminEditProblemStatementPage() {
         success(`Problem statement updated as ${status}!`);
         router.push("/admin/problem-statements");
       } else {
-        error("Update failed");
+        error(res.error || "Update failed");
       }
-    } catch {
-      error("Network error");
+    } catch (err: any) {
+      error(err?.message || "Network error");
     } finally {
       setSaving(false);
     }

@@ -1,9 +1,107 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { DEFAULT_EVALUATION_CRITERIA } from "@/lib/problem-statements";
-import { prisma } from "@/lib/prisma";
+import { getAdminDb } from "@/lib/firebase-admin";
 
 export const dynamic = "force-dynamic";
+
+const GEMINI_MODEL = "gemini-3.6-flash";
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+class GeminiRequestError extends Error {
+  constructor(
+    public readonly category: string,
+    public readonly upstreamStatus: number,
+  ) {
+    super("Gemini API request failed");
+  }
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function categoryForStatus(status: number): string {
+  if (status === 401 || status === 403) return "GEMINI_AUTH_ERROR";
+  if (status === 400) return "GEMINI_REQUEST_ERROR";
+  if (status === 404) return "GEMINI_MODEL_NOT_FOUND";
+  if (status === 429) return "GEMINI_RATE_LIMIT";
+  if (status >= 500) return "GEMINI_UPSTREAM_ERROR";
+  return "GEMINI_API_ERROR";
+}
+
+function parseGeneratedProblem(text: string): Record<string, any> {
+  const cleanText = text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleanText);
+  } catch {
+    throw new GeminiRequestError("GEMINI_MALFORMED_RESPONSE", 502);
+  }
+
+  const requiredStringFields = [
+    "title", "shortDescription", "background", "fullProblemDescription",
+    "existingChallenges", "targetUsers", "expectedOutcome", "constraints",
+    "eligibility", "submissionRequirements", "domain", "difficulty",
+    "organization", "organizationType", "location", "verificationStatus",
+  ];
+  const missingField = requiredStringFields.find((field) => typeof parsed?.[field] !== "string" || !parsed[field].trim());
+  if (missingField || !Array.isArray(parsed?.proposedSolutionAreas) ||
+      !Array.isArray(parsed?.requiredSkills) || !Array.isArray(parsed?.technologySuggestions) ||
+      !Number.isInteger(parsed?.teamSizeMin) || !Number.isInteger(parsed?.teamSizeMax)) {
+    throw new GeminiRequestError("GEMINI_MALFORMED_RESPONSE", 502);
+  }
+
+  return parsed;
+}
+
+async function generateWithGemini(prompt: string, apiKey: string): Promise<{ problem: Record<string, any>; durationMs: number }> {
+  const startedAt = Date.now();
+  let lastError: GeminiRequestError | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(`${GEMINI_ENDPOINT}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.2,
+        },
+      }),
+    });
+    const responseText = await response.text();
+    let responseData: any = null;
+    try {
+      responseData = JSON.parse(responseText);
+    } catch {}
+
+    if (response.ok) {
+      const generatedText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (typeof generatedText !== "string" || !generatedText.trim()) {
+        throw new GeminiRequestError("GEMINI_MALFORMED_RESPONSE", 502);
+      }
+      return { problem: parseGeneratedProblem(generatedText), durationMs: Date.now() - startedAt };
+    }
+
+    const category = categoryForStatus(response.status);
+    console.error("[GeminiProblemStatement] upstream failure", {
+      configured: true,
+      model: GEMINI_MODEL,
+      status: response.status,
+      category,
+      message: typeof responseData?.error?.message === "string" ? responseData.error.message.slice(0, 300) : "No provider message",
+      durationMs: Date.now() - startedAt,
+      attempt: attempt + 1,
+    });
+    lastError = new GeminiRequestError(category, response.status);
+    if (!isRetryableStatus(response.status) || attempt === 1) break;
+    await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+  }
+
+  throw lastError || new GeminiRequestError("GEMINI_API_ERROR", 502);
+}
 
 export async function POST(req: Request) {
   try {
@@ -23,7 +121,17 @@ export async function POST(req: Request) {
       additionalRequirements 
     } = body;
 
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_KEY;
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      console.error("[GeminiProblemStatement] missing configuration", {
+        configured: false,
+        model: GEMINI_MODEL,
+      });
+      return NextResponse.json(
+        { success: false, error: "Gemini API is not configured", code: "GEMINI_CONFIG_ERROR" },
+        { status: 503 }
+      );
+    }
 
     const prompt = `
 You are an expert Problem Statement Architect for SC TECH (a premier career & technology platform).
@@ -68,72 +176,14 @@ CRITICAL RULES:
 }
 `;
 
-    let generatedProblem: any = null;
-
-    if (apiKey) {
-      const models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"];
-      for (const model of models) {
-        if (generatedProblem) break;
-        try {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                  responseMimeType: "application/json",
-                  temperature: 0.2,
-                },
-              }),
-            }
-          );
-
-          if (response.ok) {
-            const data = await response.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) {
-              const cleanText = text.replace(/^```json/g, "").replace(/```$/g, "").trim();
-              generatedProblem = JSON.parse(cleanText);
-            }
-          }
-        } catch (geminiErr) {
-          console.warn(`Gemini (${model}) API call note:`, geminiErr);
-        }
-      }
-    }
-
-    // Fallback if API key missing, rate-limited, or network issue
-    if (!generatedProblem) {
-      generatedProblem = {
-        title: topic ? `Architecting ${topic} for Real-World Resilience` : "High-Throughput Distributed Platform Engineering",
-        shortDescription: `Design and build an enterprise-grade solution addressing ${topic || "system bottlenecks"} with measurable efficiency and security.`,
-        background: `Modern technology architectures in ${domain || "software engineering"} require resilient, fault-tolerant infrastructure capable of handling unpredictable traffic bursts.`,
-        fullProblemDescription: `Participants are tasked with engineering an end-to-end working system that addresses key pain points in ${topic || "modern application delivery"}. The platform must emphasize zero-downtime operations, data integrity, and intuitive administrative observability.`,
-        existingChallenges: "Legacy systems suffer from single points of failure, lack of real-time telemetry, and high latency under heavy concurrency.",
-        targetUsers: targetUsers || "Enterprise developers, platform engineers, and system administrators.",
-        expectedOutcome: "A fully functional, deployable prototype featuring automated test coverage, responsive client interfaces, and verifiable performance benchmarks.",
-        proposedSolutionAreas: [
-          "Microservices orchestration & automated failure recovery",
-          "Real-time event streaming and telemetry dashboard",
-          "Automated role-based access control and audit trails",
-        ],
-        requiredSkills: requiredTech ? requiredTech.split(",").map((s: string) => s.trim()) : ["React", "TypeScript", "Node.js", "Docker", "REST/GraphQL APIs"],
-        technologySuggestions: ["Next.js", "Node.js / Go", "PostgreSQL / SQLite", "Docker", "Tailwind CSS"],
-        constraints: "Prototype response latency must remain under 300ms for p95 requests. All data transmissions must be encrypted in transit.",
-        eligibility: "Open to all students and developers.",
-        teamSizeMin: 1,
-        teamSizeMax: 4,
-        submissionRequirements: "GitHub repo, live deployment link, demo video (3 mins max), architecture diagram.",
-        domain: domain || "Software Engineering",
-        difficulty: difficulty || "MEDIUM",
-        organization: organization || "SC TECH Original Challenge",
-        organizationType: "SC_TECH_ORIGINAL",
-        location: location || "India / Global",
-        verificationStatus: "SC_TECH_ORIGINAL",
-      };
-    }
+    const generated = await generateWithGemini(prompt, apiKey);
+    const generatedProblem = generated.problem;
+    console.info("[GeminiProblemStatement] generation succeeded", {
+      configured: true,
+      model: GEMINI_MODEL,
+      status: 200,
+      durationMs: generated.durationMs,
+    });
 
     // Add evaluation criteria & metadata
     generatedProblem.evaluationCriteria = DEFAULT_EVALUATION_CRITERIA;
@@ -143,8 +193,9 @@ CRITICAL RULES:
     // Safe audit logging
     try {
       if (session?.userId) {
-        await prisma.auditLog.create({
-          data: {
+        const adminDb = getAdminDb();
+        if (adminDb) {
+          await adminDb.collection("auditLogs").add({
             actorId: session.userId,
             actorRole: session.role || "ADMIN",
             action: "GEMINI_AI_PROBLEM_STATEMENT_GENERATED",
@@ -153,10 +204,11 @@ CRITICAL RULES:
             details: JSON.stringify({
               input: body,
               outputTitle: generatedProblem.title,
-              model: "Gemini 1.5 Flash",
+              model: GEMINI_MODEL,
             }),
-          },
-        });
+            createdAt: new Date().toISOString(),
+          });
+        }
       }
     } catch (auditErr) {
       console.warn("Audit log notice:", auditErr);
@@ -168,7 +220,13 @@ CRITICAL RULES:
     });
   } catch (error: any) {
     console.error("Error in AI Problem Statement Generator:", error);
-    return NextResponse.json({ error: "Failed to generate problem statement with Gemini AI" }, { status: 500 });
+    if (error instanceof GeminiRequestError) {
+      return NextResponse.json(
+        { success: false, error: "Gemini API request failed", code: error.category },
+        { status: error.upstreamStatus >= 400 && error.upstreamStatus < 600 ? error.upstreamStatus : 502 }
+      );
+    }
+    return NextResponse.json({ success: false, error: "Gemini generation failed", code: "GEMINI_INTERNAL_ERROR" }, { status: 500 });
   }
 }
 

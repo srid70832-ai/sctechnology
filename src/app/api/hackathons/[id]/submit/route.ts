@@ -6,6 +6,7 @@ import { isDeadlinePassed } from "@/lib/platform-models";
 import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
 import { db } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { resolveHackathon } from "@/lib/hackathons/resolve-hackathon";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
@@ -16,11 +17,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const hackathonId = params.id;
 
-    const hackathon = await prisma.hackathon.findFirst({
-      where: {
-        OR: [{ id: hackathonId }, { slug: hackathonId }],
-      },
-    });
+    const hackathon = await resolveHackathon(hackathonId);
 
     if (!hackathon) {
       return NextResponse.json({ error: "Hackathon not found" }, { status: 404 });

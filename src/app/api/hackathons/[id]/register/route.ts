@@ -2,24 +2,24 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "@/lib/auth";
 import { generateRegistrationNo, generateCertificateId } from "@/lib/utils";
-import { verifyRazorpaySignature } from "@/lib/payment";
+import { verifyRazorpayPayment } from "@/lib/payment";
 import { processReferralConversion } from "@/lib/referrals/service";
+import { resolveHackathon } from "@/lib/hackathons/resolve-hackathon";
+import { logHackathonOperation } from "@/lib/hackathons/diagnostics";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(req);
     if (!session) {
+      logHackathonOperation({ channel: "HACKATHON_REGISTRATION", hackathonId: params.id, route: "/api/hackathons/[id]/register", operation: "authenticate", result: "unauthenticated" });
       return NextResponse.json({ error: "Please log in to register" }, { status: 401 });
     }
 
-    const hackathon = await prisma.hackathon.findFirst({
-      where: {
-        OR: [{ id: params.id }, { slug: params.id }],
-      },
-    });
+    const hackathon = await resolveHackathon(params.id);
 
     if (!hackathon) {
-      return NextResponse.json({ error: "Hackathon not found" }, { status: 404 });
+      logHackathonOperation({ channel: "HACKATHON_REGISTRATION", hackathonId: params.id, userId: session.userId, route: "/api/hackathons/[id]/register", operation: "resolve-hackathon", result: "not-found" });
+      return NextResponse.json({ error: "Hackathon not found", hackathonId: params.id }, { status: 404 });
     }
 
     // 1. Strict server-enforced deadline check
@@ -43,7 +43,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         error: "You are already registered for this hackathon", 
         registrationNo: existing.registrationNo,
         registration: existing 
-      }, { status: 400 });
+      }, { status: 409 });
     }
 
     let body: any = {};
@@ -58,26 +58,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (isPaid) {
       const { orderId, paymentId, signature } = body;
 
-      if (signature && orderId && paymentId) {
-        const isValid = verifyRazorpaySignature({
-          orderId,
-          paymentId,
-          signature,
-        });
-
-        if (!isValid) {
-          return NextResponse.json({ error: "Invalid payment signature. Registration cannot be verified." }, { status: 400 });
-        }
+      if (!signature || !orderId || !paymentId) {
+        return NextResponse.json({ error: "Successful payment verification is required before registration." }, { status: 400 });
       }
 
-      const orderRef = orderId || `order_HACK_${hackathon.id.slice(-6)}_${Date.now()}`;
-      const payRef = paymentId || `pay_HACK_${Date.now()}`;
+      await verifyRazorpayPayment({ orderId, paymentId, signature });
 
       const payment = await prisma.payment.create({
         data: {
-          orderId: orderRef,
-          paymentId: payRef,
-          signature: signature || null,
+          orderId,
+          paymentId,
+          signature,
           userId: session.userId,
           hackathonId: hackathon.id,
           amount: hackathon.entryFee,
@@ -138,6 +129,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       registration,
     });
   } catch (error: any) {
+    logHackathonOperation({ channel: "HACKATHON_REGISTRATION", hackathonId: params.id, route: "/api/hackathons/[id]/register", operation: "register", result: "error" });
     console.error("Hackathon Register Error:", error);
     return NextResponse.json({ error: error?.message || "Registration failed" }, { status: 500 });
   }

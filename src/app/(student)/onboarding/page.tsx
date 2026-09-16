@@ -78,12 +78,13 @@ export default function OnboardingPage() {
   }, [studentProfile, firebaseUser, router, isAdmin]);
 
   const saveProgress = async (nextStep: number, completed = false) => {
-    if (!firebaseUser?.uid) return;
+    const targetUid = firebaseUser?.uid || user?.userId || (user as any)?.uid || (user as any)?.id;
+    if (!targetUid) return;
     const payload = {
-      uid: firebaseUser.uid,
-      fullName: fullName.trim() || firebaseUser.displayName || "",
-      email: firebaseUser.email || "",
-      photoURL: firebaseUser.photoURL || null,
+      uid: targetUid,
+      fullName: fullName.trim() || firebaseUser?.displayName || user?.name || "Student",
+      email: firebaseUser?.email || user?.email || "",
+      photoURL: firebaseUser?.photoURL || null,
       department: department || "",
       year: year || "",
       skills: Array.isArray(skills) ? skills : [],
@@ -94,8 +95,16 @@ export default function OnboardingPage() {
       preferredDomains: Array.isArray(preferredDomains) ? preferredDomains : [],
       onboardingStep: nextStep,
       onboardingCompleted: completed,
+      profileCompleted: completed,
     };
-    await saveStudentProfile(firebaseUser.uid, payload);
+    try {
+      await Promise.race([
+        saveStudentProfile(targetUid, payload),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2000)),
+      ]);
+    } catch (saveErr) {
+      console.warn("Progress save notice:", saveErr);
+    }
   };
 
   const handleNext = async () => {
@@ -124,32 +133,53 @@ export default function OnboardingPage() {
   const handleSkipOnboarding = async () => {
     setSaving(true);
     try {
-      if (firebaseUser?.uid) {
-        await saveProgress(7, true);
-        await refresh();
+      const targetUid = firebaseUser?.uid || user?.userId || (user as any)?.uid || (user as any)?.id;
+      if (targetUid) {
+        try {
+          await Promise.race([
+            saveStudentProfile(targetUid, {
+              uid: targetUid,
+              fullName: fullName.trim() || firebaseUser?.displayName || user?.name || "Student",
+              email: firebaseUser?.email || user?.email || "",
+              onboardingStep: 7,
+              onboardingCompleted: true,
+              profileCompleted: true,
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500)),
+          ]);
+        } catch (saveErr) {
+          console.warn("Skip save notice:", saveErr);
+        }
+        try {
+          await refresh();
+        } catch {}
       }
-      success("Onboarding skipped. You can personalize your preferences anytime in your Profile.");
-      router.push("/dashboard");
-    } catch {
-      router.push("/dashboard");
+      success("Onboarding skipped. Redirecting to Dashboard...");
     } finally {
-      setSaving(false);
+      window.location.href = "/dashboard";
     }
   };
 
   const handleFinish = async () => {
     setSaving(true);
     try {
-      if (firebaseUser?.uid) {
-        await saveProgress(7, true);
-        await refresh();
-        success("Onboarding completed!");
-        router.push("/dashboard");
+      const targetUid = firebaseUser?.uid || user?.userId || (user as any)?.uid || (user as any)?.id;
+      if (targetUid) {
+        try {
+          await Promise.race([
+            saveProgress(7, true),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500)),
+          ]);
+        } catch (saveErr) {
+          console.warn("Finish save notice:", saveErr);
+        }
+        try {
+          await refresh();
+        } catch {}
       }
-    } catch {
-      error("Failed to save onboarding data. Please try again.");
+      success("Onboarding completed! Redirecting to Dashboard...");
     } finally {
-      setSaving(false);
+      window.location.href = "/dashboard";
     }
   };
 

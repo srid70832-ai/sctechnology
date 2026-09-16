@@ -163,8 +163,18 @@ export async function saveStudentProfile(uid: string, data: Partial<StudentProfi
     await setDoc(studentDocRef, cleanedPayload, { merge: true });
     return true;
   } catch (err) {
-    console.error("Error saving student profile to Firestore (students/):", err);
-    return false;
+    console.warn("Client Firestore student save rejected, falling back to server Admin API:", err);
+    try {
+      const res = await fetch("/api/student/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid, ...data }),
+      });
+      return res.ok;
+    } catch (apiErr) {
+      console.error("Server Admin API student profile save error:", apiErr);
+      return false;
+    }
   }
 }
 

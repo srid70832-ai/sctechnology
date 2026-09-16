@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import { Navbar } from "@/components/ui/Navbar";
 import { Footer } from "@/components/ui/Footer";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { REAL_WORLD_PROJECTS, ProjectData } from "@/lib/projects-data";
+import { ProjectData } from "@/lib/projects-data";
 import { 
   FolderGit2, 
   Search, 
@@ -29,9 +29,10 @@ import {
 } from "lucide-react";
 
 export default function ProjectsListPage() {
-  const { user } = useAuth();
-  const [projects, setProjects] = useState<ProjectData[]>(REAL_WORLD_PROJECTS);
-  const [loading, setLoading] = useState(false);
+  const { user, loading: authLoading } = useAuth();
+  const [projects, setProjects] = useState<ProjectData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [accessState, setAccessState] = useState<"loading" | "allowed" | "upgrade">("loading");
 
   // Filters State
   const [searchQuery, setSearchQuery] = useState("");
@@ -48,6 +49,33 @@ export default function ProjectsListPage() {
     "Cybersecurity",
     "FinTech"
   ];
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      window.location.href = "/login?redirect=/projects";
+      return;
+    }
+
+    fetch("/api/projects")
+      .then(async (response) => {
+        if (response.status === 401) {
+          window.location.href = "/login?redirect=/projects";
+          return;
+        }
+        if (response.status === 403) {
+          setAccessState("upgrade");
+          return;
+        }
+        if (!response.ok) throw new Error("Failed to load projects");
+        const data = await response.json();
+        setProjects(data.projects || []);
+        setAccessState("allowed");
+      })
+      .catch(() => setAccessState("upgrade"))
+      .finally(() => setLoading(false));
+  }, [user, authLoading]);
 
   const filteredProjects = projects.filter((p) => {
     if (categoryFilter !== "All") {
@@ -70,6 +98,27 @@ export default function ProjectsListPage() {
       p.technologyStack?.some((t) => t.toLowerCase().includes(q))
     );
   });
+
+  if (loading) {
+    return <div className="min-h-screen bg-[#070B14] text-slate-100 flex items-center justify-center">Loading project access...</div>;
+  }
+
+  if (accessState === "upgrade") {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#070B14] text-slate-100">
+        <Navbar />
+        <main className="flex-1 max-w-3xl mx-auto px-6 py-24 text-center">
+          <Lock className="w-12 h-12 text-blue-400 mx-auto mb-5" />
+          <h1 className="text-3xl font-black text-white">Real-World Projects</h1>
+          <p className="mt-4 text-slate-300">Real-World Projects are available with Plus, Pro or Career plans.</p>
+          <Link href="/plans" className="mt-8 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-500">
+            Upgrade to Plus – ₹399/month <ArrowRight className="w-4 h-4" />
+          </Link>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-[#070B14] text-slate-100 selection:bg-blue-600 selection:text-white">

@@ -5,9 +5,8 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Navbar } from "@/components/ui/Navbar";
 import { Footer } from "@/components/ui/Footer";
-import { collection, getDocs, query, where, orderBy, onSnapshot } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { ProblemStatement } from "@/lib/problem-statements";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { 
   FileCode2, 
   Search, 
@@ -25,39 +24,41 @@ import {
 export default function ProblemStatementsListPage() {
   const [problems, setProblems] = useState<ProblemStatement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [domainFilter, setDomainFilter] = useState("All");
   const [difficultyFilter, setDifficultyFilter] = useState("All");
+  const { firebaseUser } = useAuth();
 
   useEffect(() => {
-    const colRef = collection(db, "problemStatements");
-    const q = query(colRef, where("status", "==", "PUBLISHED"), orderBy("createdAt", "desc"));
+    if (!firebaseUser) return;
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const list: ProblemStatement[] = [];
-        snapshot.forEach((d) => {
-          list.push({ id: d.id, ...(d.data() as ProblemStatement) });
-        });
-        setProblems(list);
-        setLoading(false);
-      },
-      (err) => {
-        console.error("Firestore onSnapshot error:", err);
-        getDocs(q)
-          .then((snap) => {
-            const list: ProblemStatement[] = [];
-            snap.forEach((d) => list.push({ id: d.id, ...(d.data() as ProblemStatement) }));
-            setProblems(list);
-          })
-          .catch((e) => console.error(e))
-          .finally(() => setLoading(false));
-      }
-    );
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
 
-    return () => unsubscribe();
-  }, []);
+    firebaseUser.getIdToken()
+      .then((token) => fetch("/api/problem-statements", {
+        headers: { Authorization: `Bearer ${token}` },
+      }))
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `Unable to load problem statements (${response.status})`);
+        if (!cancelled) setProblems(data.statements || data.problemStatements || []);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("Error loading published problem statements:", err);
+          setProblems([]);
+          setLoadError(err instanceof Error ? err.message : "Unable to load problem statements");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [firebaseUser]);
 
   const filteredProblems = problems.filter((item) => {
     if (domainFilter !== "All" && item.domain !== domainFilter) return false;
@@ -144,8 +145,12 @@ export default function ProblemStatementsListPage() {
         ) : filteredProblems.length === 0 ? (
           <div className="p-16 rounded-3xl bg-slate-900/40 border border-slate-800 text-center max-w-md mx-auto space-y-3">
             <FileCode2 className="w-10 h-10 text-slate-600 mx-auto" />
-            <h3 className="text-base font-bold text-white">No problem statements are currently available.</h3>
-            <p className="text-xs text-slate-400">Please check back shortly as new industry challenges are published.</p>
+            <h3 className="text-base font-bold text-white">
+              {loadError ? "Unable to load problem statements." : "No problem statements are currently available."}
+            </h3>
+            <p className="text-xs text-slate-400">
+              {loadError || "Please check back shortly as new industry challenges are published."}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -9,6 +9,22 @@ const PUBLIC_ROOTS = [
   '/forgot-password',
   '/verify',
   '/ref',
+  '/about',
+  '/companies',
+  '/contact',
+  '/cookie-policy',
+  '/courses',
+  '/hackathons',
+  '/hr-sessions',
+  '/internships',
+  '/leaderboard',
+  '/plans',
+  '/privacy',
+  '/problem-statements',
+  '/projects',
+  '/resources',
+  '/terms',
+  '/verify-certificate',
 ];
 
 function isPublicPath(pathname: string): boolean {
@@ -136,8 +152,8 @@ export const config = {
      * - api routes (/api/*)
      * - _next/static (static files)
      * - _next/image (image optimization files)
-     * - favicon.ico, logo.png, images/*, static asset extensions
+    * - favicon.ico, logo.png, images/*, static asset extensions
      */
-    '/((?!api|_next/static|_next/image|favicon\\.ico|logo\\.png|images|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)',
+    '/((?!api|_next/static|_next/image|favicon\\.ico|logo\\.png|images|sitemap\\.xml|robots\\.txt|.*\\.(?:html|xml|txt|svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)',
   ],
 };

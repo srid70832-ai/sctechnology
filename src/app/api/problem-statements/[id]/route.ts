@@ -1,24 +1,109 @@
 import { NextResponse } from "next/server";
-import { requireAdmin, getServerSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { db } from "@/lib/firebase";
-import { doc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { requireAdmin } from "@/lib/auth";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { removeUndefinedValues } from "@/lib/firestore";
-import { DEFAULT_EVALUATION_CRITERIA } from "@/lib/problem-statements";
+import { DEFAULT_EVALUATION_CRITERIA, ProblemStatement } from "@/lib/problem-statements";
 
 export const dynamic = "force-dynamic";
 
+function toISOStringSafe(val: any): string {
+  if (!val) return new Date().toISOString();
+  if (typeof val === "string") {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? val : d.toISOString();
+  }
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? new Date().toISOString() : val.toISOString();
+  }
+  if (typeof val?.toDate === "function") {
+    return val.toDate().toISOString();
+  }
+  if (typeof val?.seconds === "number") {
+    return new Date(val.seconds * 1000).toISOString();
+  }
+  try {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? String(val) : d.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
 function safeParseArray(val: any): string[] {
-  if (Array.isArray(val)) return val;
+  if (Array.isArray(val)) return val.map(String).map((s) => s.trim()).filter(Boolean);
   if (typeof val === "string") {
     try {
       const parsed = JSON.parse(val);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return parsed.map(String).map((s) => s.trim()).filter(Boolean);
+      return [val.trim()].filter(Boolean);
     } catch {
       return val.split(",").map((s) => s.trim()).filter(Boolean);
     }
   }
   return [];
+}
+
+function formatProblemStatementDoc(id: string, data: any): ProblemStatement {
+  let evalCriteria = DEFAULT_EVALUATION_CRITERIA;
+  try {
+    if (data.evaluationCriteria) {
+      evalCriteria = typeof data.evaluationCriteria === "string"
+        ? JSON.parse(data.evaluationCriteria)
+        : data.evaluationCriteria;
+    }
+  } catch {}
+
+  return {
+    id,
+    problemStatementId: data.problemStatementId || id,
+    slug: data.slug || id,
+    title: data.title || "Untitled Problem Statement",
+    shortDescription: data.shortDescription || data.description || "",
+    fullProblemDescription: data.fullProblemDescription || data.description || data.shortDescription || "",
+    background: data.background || "",
+    problemCategory: data.problemCategory || "Open Innovation",
+    domain: data.domain || "Software Engineering",
+    difficulty: (data.difficulty || "MEDIUM").toUpperCase() as any,
+    organization: data.organization || "SC TECH Original Challenge",
+    organizationType: (data.organizationType || "SC_TECH_ORIGINAL") as any,
+    location: data.location || "India / Global",
+    targetUsers: data.targetUsers || "",
+    existingChallenges: data.existingChallenges || "",
+    expectedOutcome: data.expectedOutcome || "",
+    proposedSolutionAreas: safeParseArray(data.proposedSolutionAreas),
+    requiredSkills: safeParseArray(data.requiredSkills),
+    technologySuggestions: safeParseArray(data.technologySuggestions),
+    constraints: data.constraints || "",
+    eligibility: data.eligibility || "All registered students",
+    teamSizeMin: Number(data.teamSizeMin) || 1,
+    teamSizeMax: Number(data.teamSizeMax) || 4,
+    submissionRequirements: data.submissionRequirements || "GitHub repository + Live URL + Walkthrough Video",
+    evaluationCriteria: evalCriteria,
+    deadline: data.deadline ? toISOStringSafe(data.deadline) : "",
+    sourceUrl: data.sourceUrl || undefined,
+    sourceName: data.sourceName || undefined,
+    isAiGenerated: Boolean(data.isAiGenerated),
+    verificationStatus: (data.verificationStatus || "SC_TECH_ORIGINAL") as any,
+    createdBy: data.createdBy || "ADMIN",
+    status: (data.status || "PUBLISHED").toUpperCase() as any,
+    createdAt: toISOStringSafe(data.createdAt),
+    updatedAt: toISOStringSafe(data.updatedAt),
+  };
+}
+
+async function findDocByIdOrSlug(adminDb: FirebaseFirestore.Firestore, idOrSlug: string) {
+  const directDoc = await adminDb.collection("problemStatements").doc(idOrSlug).get();
+  if (directDoc.exists) {
+    return { id: directDoc.id, data: directDoc.data() };
+  }
+
+  const slugSnap = await adminDb.collection("problemStatements").where("slug", "==", idOrSlug).limit(1).get();
+  if (!slugSnap.empty) {
+    const d = slugSnap.docs[0];
+    return { id: d.id, data: d.data() };
+  }
+
+  return null;
 }
 
 /**
@@ -27,58 +112,17 @@ function safeParseArray(val: any): string[] {
  */
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
-    const p = await prisma.problemStatement.findFirst({
-      where: {
-        OR: [{ id: params.id }, { slug: params.id }],
-      },
-    });
-
-    if (!p) {
-      return NextResponse.json({ error: "Problem statement not found" }, { status: 404 });
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ success: false, error: "Database configuration error." }, { status: 500 });
     }
 
-    let evalCriteria = DEFAULT_EVALUATION_CRITERIA;
-    try {
-      if (p.evaluationCriteria) {
-        evalCriteria = JSON.parse(p.evaluationCriteria);
-      }
-    } catch {}
+    const found = await findDocByIdOrSlug(adminDb, params.id);
+    if (!found) {
+      return NextResponse.json({ success: false, error: "Problem statement not found" }, { status: 404 });
+    }
 
-    const statement = {
-      id: p.id,
-      slug: p.slug,
-      title: p.title,
-      shortDescription: p.shortDescription,
-      fullProblemDescription: p.fullProblemDescription,
-      background: p.background || "",
-      problemCategory: p.problemCategory,
-      domain: p.domain,
-      difficulty: p.difficulty as any,
-      organization: p.organization,
-      organizationType: p.organizationType as any,
-      location: p.location,
-      targetUsers: p.targetUsers || "",
-      existingChallenges: p.existingChallenges || "",
-      expectedOutcome: p.expectedOutcome || "",
-      proposedSolutionAreas: safeParseArray(p.proposedSolutionAreas),
-      requiredSkills: safeParseArray(p.requiredSkills),
-      technologySuggestions: safeParseArray(p.technologySuggestions),
-      constraints: p.constraints || "",
-      eligibility: p.eligibility || "",
-      teamSizeMin: p.teamSizeMin,
-      teamSizeMax: p.teamSizeMax,
-      submissionRequirements: p.submissionRequirements || "",
-      evaluationCriteria: evalCriteria,
-      deadline: p.deadline ? p.deadline.toISOString() : "",
-      sourceUrl: p.sourceUrl || undefined,
-      sourceName: p.sourceName || undefined,
-      isAiGenerated: p.isAiGenerated,
-      verificationStatus: p.verificationStatus as any,
-      createdBy: p.createdBy,
-      status: p.status as any,
-      createdAt: p.createdAt.toISOString(),
-      updatedAt: p.updatedAt.toISOString(),
-    };
+    const statement = formatProblemStatementDoc(found.id, found.data);
 
     return NextResponse.json({
       success: true,
@@ -87,7 +131,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     });
   } catch (error: any) {
     console.error("GET /api/problem-statements/[id] Error:", error);
-    return NextResponse.json({ error: "Failed to fetch problem statement" }, { status: 500 });
+    return NextResponse.json({ success: false, error: error?.message || "Failed to fetch problem statement" }, { status: 500 });
   }
 }
 
@@ -100,62 +144,61 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const { authorized, errorResponse } = await requireAdmin(req);
     if (!authorized) return errorResponse;
 
-    const body = await req.json();
-
-    const existing = await prisma.problemStatement.findFirst({
-      where: {
-        OR: [{ id: params.id }, { slug: params.id }],
-      },
-    });
-
-    if (!existing) {
-      return NextResponse.json({ error: "Problem statement not found" }, { status: 404 });
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ success: false, error: "Database configuration error." }, { status: 500 });
     }
 
-    const toArray = (v: any): string[] => {
-      if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
-      if (typeof v === "string") return v.split("\n").map((s) => s.trim()).filter(Boolean);
-      return [];
-    };
+    const found = await findDocByIdOrSlug(adminDb, params.id);
+    if (!found) {
+      return NextResponse.json({ success: false, error: "Problem statement not found" }, { status: 404 });
+    }
 
-    const updateData: any = {};
+    const body = await req.json();
+    const updateData: Record<string, any> = {};
+
     if (body.title !== undefined) updateData.title = String(body.title).trim();
-    if (body.shortDescription !== undefined) updateData.shortDescription = String(body.shortDescription).trim();
+    if (body.shortDescription !== undefined || body.description !== undefined) {
+      updateData.shortDescription = String(body.shortDescription || body.description).trim();
+    }
     if (body.fullProblemDescription !== undefined) updateData.fullProblemDescription = String(body.fullProblemDescription).trim();
-    if (body.background !== undefined) updateData.background = body.background ? String(body.background).trim() : null;
+    if (body.background !== undefined) updateData.background = body.background ? String(body.background).trim() : "";
+    if (body.problemCategory !== undefined) updateData.problemCategory = body.problemCategory;
     if (body.domain !== undefined) updateData.domain = body.domain;
-    if (body.difficulty !== undefined) updateData.difficulty = body.difficulty.toUpperCase();
+    if (body.difficulty !== undefined) updateData.difficulty = String(body.difficulty).toUpperCase();
     if (body.organization !== undefined) updateData.organization = body.organization;
     if (body.organizationType !== undefined) updateData.organizationType = body.organizationType;
     if (body.location !== undefined) updateData.location = body.location;
     if (body.targetUsers !== undefined) updateData.targetUsers = body.targetUsers;
     if (body.existingChallenges !== undefined) updateData.existingChallenges = body.existingChallenges;
     if (body.expectedOutcome !== undefined) updateData.expectedOutcome = body.expectedOutcome;
-    if (body.proposedSolutionAreas !== undefined) updateData.proposedSolutionAreas = JSON.stringify(toArray(body.proposedSolutionAreas));
-    if (body.requiredSkills !== undefined) updateData.requiredSkills = JSON.stringify(toArray(body.requiredSkills));
-    if (body.technologySuggestions !== undefined) updateData.technologySuggestions = JSON.stringify(toArray(body.technologySuggestions));
+    if (body.proposedSolutionAreas !== undefined) updateData.proposedSolutionAreas = safeParseArray(body.proposedSolutionAreas);
+    if (body.requiredSkills !== undefined) updateData.requiredSkills = safeParseArray(body.requiredSkills);
+    if (body.technologySuggestions !== undefined) updateData.technologySuggestions = safeParseArray(body.technologySuggestions);
     if (body.constraints !== undefined) updateData.constraints = body.constraints;
     if (body.eligibility !== undefined) updateData.eligibility = body.eligibility;
     if (body.teamSizeMin !== undefined) updateData.teamSizeMin = Number(body.teamSizeMin);
     if (body.teamSizeMax !== undefined) updateData.teamSizeMax = Number(body.teamSizeMax);
     if (body.submissionRequirements !== undefined) updateData.submissionRequirements = body.submissionRequirements;
-    if (body.evaluationCriteria !== undefined) updateData.evaluationCriteria = JSON.stringify(body.evaluationCriteria);
-    if (body.status !== undefined) updateData.status = body.status;
-    if (body.deadline !== undefined) updateData.deadline = body.deadline ? new Date(body.deadline) : null;
+    if (body.evaluationCriteria !== undefined) {
+      updateData.evaluationCriteria = Array.isArray(body.evaluationCriteria) && body.evaluationCriteria.length > 0
+        ? body.evaluationCriteria
+        : DEFAULT_EVALUATION_CRITERIA;
+    }
+    if (body.status !== undefined) updateData.status = String(body.status).toUpperCase();
+    if (body.deadline !== undefined) updateData.deadline = body.deadline ? toISOStringSafe(body.deadline) : "";
+    if (body.sourceUrl !== undefined) updateData.sourceUrl = body.sourceUrl;
+    if (body.sourceName !== undefined) updateData.sourceName = body.sourceName;
+    if (body.verificationStatus !== undefined) updateData.verificationStatus = body.verificationStatus;
 
-    const updated = await prisma.problemStatement.update({
-      where: { id: existing.id },
-      data: updateData,
-    });
+    updateData.updatedAt = new Date().toISOString();
 
-    // Optional Firestore sync
-    try {
-      const docRef = doc(db, "problemStatements", existing.id);
-      await setDoc(docRef, removeUndefinedValues({
-        ...updateData,
-        updatedAt: serverTimestamp(),
-      }), { merge: true });
-    } catch {}
+    const cleanedUpdate = removeUndefinedValues(updateData);
+    await adminDb.collection("problemStatements").doc(found.id).set(cleanedUpdate, { merge: true });
+
+    // Verify update
+    const verifySnap = await adminDb.collection("problemStatements").doc(found.id).get();
+    const updated = formatProblemStatementDoc(found.id, verifySnap.data());
 
     return NextResponse.json({
       success: true,
@@ -165,7 +208,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     });
   } catch (error: any) {
     console.error("PATCH /api/problem-statements/[id] Error:", error);
-    return NextResponse.json({ error: error?.message || "Failed to update problem statement" }, { status: 500 });
+    return NextResponse.json({ success: false, error: error?.message || "Failed to update problem statement" }, { status: 500 });
   }
 }
 
@@ -182,17 +225,15 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     const { authorized, errorResponse } = await requireAdmin(req);
     if (!authorized) return errorResponse;
 
-    await prisma.problemStatement.deleteMany({
-      where: {
-        OR: [{ id: params.id }, { slug: params.id }],
-      },
-    });
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ success: false, error: "Database configuration error." }, { status: 500 });
+    }
 
-    // Optional Firestore delete
-    try {
-      const docRef = doc(db, "problemStatements", params.id);
-      await deleteDoc(docRef);
-    } catch {}
+    const found = await findDocByIdOrSlug(adminDb, params.id);
+    if (found) {
+      await adminDb.collection("problemStatements").doc(found.id).delete();
+    }
 
     return NextResponse.json({
       success: true,
@@ -200,7 +241,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     });
   } catch (error: any) {
     console.error("DELETE /api/problem-statements/[id] Error:", error);
-    return NextResponse.json({ error: error?.message || "Failed to delete problem statement" }, { status: 500 });
+    return NextResponse.json({ success: false, error: error?.message || "Failed to delete problem statement" }, { status: 500 });
   }
 }
 

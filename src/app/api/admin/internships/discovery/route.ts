@@ -12,6 +12,7 @@ import {
   generateInternshipDedupKey 
 } from "@/lib/gemini-discovery";
 import { removeUndefinedValues } from "@/lib/firestore";
+import { notifyIndexNow, publicContentUrl } from "@/lib/indexnow";
 
 export const dynamic = "force-dynamic";
 
@@ -158,6 +159,10 @@ export async function PATCH(req: Request) {
 
     await updateDoc(docRef, removeUndefinedValues(updates)).catch(() => null);
 
+    if (updates.status === "PUBLISHED" || action === "UNPUBLISH") {
+      notifyIndexNow(publicContentUrl("internships", id));
+    }
+
     return NextResponse.json({
       success: true,
       message: `Internship ${id} updated successfully.`,
@@ -193,6 +198,7 @@ export async function DELETE(req: Request) {
     saveDiscoveredInternships(filtered);
 
     await deleteDoc(doc(db, "internships", id)).catch(() => null);
+    notifyIndexNow(publicContentUrl("internships", id));
 
     return NextResponse.json({
       success: true,

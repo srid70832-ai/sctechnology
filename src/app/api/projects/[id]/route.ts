@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth";
-import { getProjectBySlug, checkUserSourceCodeAccess } from "@/lib/projects-service";
+import { getProjectBySlug } from "@/lib/projects-service";
+import { hasRealWorldProjectsAccess, projectAccessError } from "@/lib/real-world-project-access";
 
 export const dynamic = "force-dynamic";
 
@@ -12,27 +13,18 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    // Check user session & subscription access
-    const session = await getServerSession();
-    let hasAccess = false;
-    let planName = "Free / Starter Tier";
-
-    if (!project.isPremium) {
-      hasAccess = true;
-    } else if (session?.userId) {
-      const accessCheck = await checkUserSourceCodeAccess(session.userId, session.role);
-      hasAccess = accessCheck.hasAccess;
-      planName = accessCheck.planName;
+    const session = await getServerSession(req);
+    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
+    if (!access.hasAccess) {
+      return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
     }
 
     return NextResponse.json({
       success: true,
       project: {
         ...project,
-        hasAccess,
-        userPlan: planName,
-        // Hide full source code package details for locked users
-        sourceCodeSnippet: hasAccess ? project.sourceCodeSnippet : "// 🔒 Full source code is available with Plus, Pro, and Career plans (₹399+)\n// Upgrade your plan to access the complete runnable codebase.",
+        hasAccess: true,
+        userPlan: access.planName,
       },
     });
   } catch (error: any) {
