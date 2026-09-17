@@ -58,14 +58,17 @@ export const PopularInternships: React.FC<PopularInternshipsProps> = ({
   internships = [],
   upcomingHackathon,
 }) => {
-  // Live countdown timer for the upcoming hackathon (Target: Sep 15, 2026)
+  // Live countdown timer for the upcoming hackathon
   const [timeLeft, setTimeLeft] = useState({ days: 5, hours: 14, mins: 32, secs: 10 });
 
   useEffect(() => {
-    const targetDate = new Date("2026-09-15T09:00:00Z").getTime();
+    const rawTarget = upcomingHackathon?.startDate || "2026-09-15T09:00:00Z";
+    const targetDate = new Date(rawTarget).getTime();
+    const validTarget = isNaN(targetDate) ? new Date("2026-09-15T09:00:00Z").getTime() : targetDate;
+
     const updateTimer = () => {
       const now = Date.now();
-      const diff = Math.max(0, targetDate - now);
+      const diff = Math.max(0, validTarget - now);
       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
       const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
       const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -76,7 +79,7 @@ export const PopularInternships: React.FC<PopularInternshipsProps> = ({
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [upcomingHackathon?.startDate]);
 
   return (
     <section className="py-14 bg-[#070B14] relative overflow-hidden">
@@ -382,10 +385,16 @@ export const PopularInternships: React.FC<PopularInternshipsProps> = ({
                 {/* Title & Tagline */}
                 <div>
                   <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
-                    SC TECH <span className="text-[#A855F7]">HACKATHON 2026</span>
+                    {upcomingHackathon?.title ? (
+                      <span>{upcomingHackathon.title}</span>
+                    ) : (
+                      <>
+                        SC TECH <span className="text-[#A855F7]">HACKATHON 2026</span>
+                      </>
+                    )}
                   </h3>
                   <p className="text-xs text-blue-400 font-medium">
-                    Code. Innovate. Elevate.
+                    {upcomingHackathon?.tagLine || "Code. Innovate. Elevate."}
                   </p>
                 </div>
 
@@ -394,19 +403,41 @@ export const PopularInternships: React.FC<PopularInternshipsProps> = ({
                   <div className="col-span-7 space-y-2 text-xs text-slate-300">
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400">Entry Fee</span>
-                      <span className="font-bold text-white">₹35 / Person</span>
+                      <span className="font-bold text-white">
+                        {upcomingHackathon
+                          ? upcomingHackathon.entryFee > 0
+                            ? `₹${upcomingHackathon.entryFee} / Person`
+                            : "Free Entry"
+                          : "₹35 / Person"}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400">Participants</span>
-                      <span className="font-bold text-white">500+</span>
+                      <span className="font-bold text-white">
+                        {upcomingHackathon?.participantsCount
+                          ? `${upcomingHackathon.participantsCount}+`
+                          : "500+"}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400">Prize Pool</span>
-                      <span className="font-extrabold text-[#38BDF8]">₹50,000+</span>
+                      <span className="font-extrabold text-[#38BDF8]">
+                        {upcomingHackathon?.prizePool
+                          ? `₹${upcomingHackathon.prizePool.toLocaleString()}+`
+                          : "₹50,000+"}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400">Date</span>
-                      <span className="font-semibold text-white">15 – 17 Sep 2026</span>
+                      <span className="font-semibold text-white">
+                        {upcomingHackathon?.startDate
+                          ? new Date(upcomingHackathon.startDate).toLocaleDateString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })
+                          : "15 – 17 Sep 2026"}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400">Mode</span>
@@ -426,7 +457,11 @@ export const PopularInternships: React.FC<PopularInternshipsProps> = ({
 
                 {/* Register CTA */}
                 <Link
-                  href="/hackathons"
+                  href={
+                    upcomingHackathon?.slug || upcomingHackathon?.id
+                      ? `/hackathons/${upcomingHackathon.slug || upcomingHackathon.id}`
+                      : "/hackathons"
+                  }
                   className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold text-xs text-center block shadow-lg shadow-blue-600/30 transition transform hover:-translate-y-0.5 active:scale-95 duration-75 cursor-pointer"
                 >
                   Register Now →

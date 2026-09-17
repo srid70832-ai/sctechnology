@@ -81,7 +81,27 @@ export default async function HomePage() {
     projects = results[6] || [];
     plans = results[7] || [];
   } catch (err) {
-    console.warn("Prisma query failed on serverless runtime, using verified static fallback:", err);
+    console.warn("Prisma query notice on serverless runtime:", err);
+  }
+
+  // Attempt Firestore fetch for live hackathon data
+  if (!upcomingHackathon) {
+    try {
+      const { getAdminDb } = await import("@/lib/firebase-admin");
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection("hackathons").where("status", "in", ["PUBLISHED", "ONGOING"]).limit(1).get();
+        if (!snap.empty) {
+          const docData = snap.docs[0].data();
+          upcomingHackathon = {
+            id: snap.docs[0].id,
+            ...docData,
+          };
+        }
+      }
+    } catch (fsErr) {
+      console.warn("Firestore hackathon fetch on homepage notice:", fsErr);
+    }
   }
 
   // Format internships with safe fallback
