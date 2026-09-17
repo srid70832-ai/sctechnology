@@ -167,8 +167,9 @@ export default function BuildProjectPage() {
       } else {
         success("Project draft saved!");
       }
-    } catch {
-      error("Failed to save project");
+    } catch (err: any) {
+      console.error("Failed to save project workspace:", err);
+      error(err?.message || "Failed to save project");
     } finally {
       setSaving(false);
     }
