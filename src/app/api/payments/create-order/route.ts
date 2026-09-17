@@ -6,6 +6,8 @@ import { db } from "@/lib/firebase";
 import { collection, addDoc, getDocs, query, where, serverTimestamp } from "firebase/firestore";
 import { DEFAULT_PLANS, getOfferFromFirestore, calculatePlanPrice } from "@/lib/plans";
 
+import { getProjectBySlug } from "@/lib/projects-service";
+
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
@@ -29,13 +31,35 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { planId, billingCycle = "MONTHLY", hackathonId } = body;
+    const { planId, billingCycle = "MONTHLY", hackathonId, projectId } = body;
 
     let calculatedAmount = 0;
     let originalAmount = 0;
     let planName = "SC TECH Subscription";
+    let orderType = "SUBSCRIPTION";
+    let targetProjectId = "";
+    let targetProjectTitle = "";
 
-    if (planId) {
+    if (projectId) {
+      // Direct Real-World Project Purchase
+      const project = await getProjectBySlug(projectId);
+      if (!project) {
+        return NextResponse.json({ error: "Project not found or invalid." }, { status: 404 });
+      }
+
+      targetProjectId = project.id || projectId;
+      targetProjectTitle = project.title || "Real-World Project";
+      // Dynamic project price from Firestore / project definition (default ₹299 or ₹399)
+      const projectPrice = project.price ?? (project.accessLevel === "FREE" ? 0 : 299);
+      calculatedAmount = projectPrice;
+      originalAmount = projectPrice;
+      planName = `${project.title} — Project Unlock`;
+      orderType = "PROJECT_PURCHASE";
+
+      if (calculatedAmount <= 0) {
+        return NextResponse.json({ error: "This project is free and does not require payment." }, { status: 400 });
+      }
+    } else if (planId) {
       // 1. Calculate price securely from Firestore or DEFAULT_PLANS - NEVER trust client amount
       const targetCode = planId.toUpperCase();
       let foundPriceMonthly = 0;
@@ -85,8 +109,9 @@ export async function POST(req: Request) {
       calculatedAmount = 35;
       originalAmount = 35;
       planName = "Hackathon Entry Fee";
+      orderType = "HACKATHON";
     } else {
-      return NextResponse.json({ error: "Plan ID or Hackathon ID is required." }, { status: 400 });
+      return NextResponse.json({ error: "Project ID, Plan ID, or Hackathon ID is required." }, { status: 400 });
     }
 
     const receipt = `rcpt_${uid.slice(0, 6)}_${Date.now()}`;
@@ -100,6 +125,9 @@ export async function POST(req: Request) {
         planId: planId || "",
         billingCycle: billingCycle || "MONTHLY",
         hackathonId: hackathonId || "",
+        projectId: targetProjectId || projectId || "",
+        projectTitle: targetProjectTitle || "",
+        type: orderType,
         mode: getRazorpayMode(),
       },
     });
@@ -113,6 +141,9 @@ export async function POST(req: Request) {
         planId: planId?.toUpperCase() || "",
         billingCycle: billingCycle || "MONTHLY",
         hackathonId: hackathonId || "",
+        projectId: targetProjectId || projectId || "",
+        projectTitle: targetProjectTitle || "",
+        type: orderType,
         razorpayOrderId: order.orderId,
         amount: calculatedAmount,
         currency: "INR",
@@ -131,6 +162,7 @@ export async function POST(req: Request) {
       currency: order.currency,
       keyId: getRazorpayKeyId(),
       planName,
+      projectId: targetProjectId || projectId || undefined,
     });
   } catch (error: any) {
     console.error("Create Order Error:", error);

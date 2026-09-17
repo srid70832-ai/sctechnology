@@ -46,9 +46,11 @@ export function ProjectActivationModal({
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [subscriptionSuccess, setSubscriptionSuccess] = useState<{ planName: string; amount: number; startedAt: string; expiresAt: string } | null>(null);
 
+  const [directCheckoutPrice, setDirectCheckoutPrice] = useState<number>(project?.price || 299);
+
   useEffect(() => {
     async function checkStatus() {
-      if (!isOpen || !user && !firebaseUser) {
+      if (!isOpen || (!user && !firebaseUser)) {
         setCheckingActive(false);
         return;
       }
@@ -59,7 +61,8 @@ export function ProjectActivationModal({
 
       try {
         const uid = user?.userId || firebaseUser?.uid;
-        const res = await fetch(`/api/projects/enrollment/active?userId=${uid}`);
+        const targetProjId = project?.id || project?.slug || "";
+        const res = await fetch(`/api/projects/enrollment/active?userId=${uid}&projectId=${targetProjId}`);
         if (res.status === 401) {
           router.push(`/login?redirect=/projects/${project?.slug || project?.id || ""}`);
           return;
@@ -71,9 +74,11 @@ export function ProjectActivationModal({
         if (res.ok) {
           const json = await res.json();
           if (json.activeEnrollment) {
-            setActiveProjectError(
-              `You already have an active project: "${json.activeEnrollment.projectTitle}". SC TECH limits students to 1 active project at a time. Please complete or close your active project before activating another.`
-            );
+            if (json.activeEnrollment.projectId !== targetProjId && json.activeEnrollment.projectSlug !== targetProjId) {
+              setActiveProjectError(
+                `You already have an active project: "${json.activeEnrollment.projectTitle}". SC TECH limits students to 1 active project at a time. Please complete or close your active project before activating another.`
+              );
+            }
           } else if (json.hasPreviousProjects) {
             setIsNextProject(true);
           }
@@ -86,6 +91,75 @@ export function ProjectActivationModal({
     }
     checkStatus();
   }, [isOpen, user, firebaseUser, router, project]);
+
+  const handleDirectProjectCheckout = async () => {
+    const currentUser = firebaseUser;
+    if (!currentUser || !project) {
+      router.push("/login?redirect=/projects/" + (project?.slug || project?.id || ""));
+      return;
+    }
+
+    setPaymentLoading(true);
+    try {
+      const token = await currentUser.getIdToken(true);
+      const orderResponse = await fetch("/api/payments/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ projectId: project.id, duration: selectedDuration }),
+      });
+      const order = await orderResponse.json();
+      if (!orderResponse.ok) throw new Error(order.error || "Unable to create project purchase order");
+      if (!(window as any).Razorpay) throw new Error("Razorpay Checkout is unavailable. Please try again.");
+
+      const razorpay = new (window as any).Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency || "INR",
+        name: "SC TECH",
+        description: `${project.title} — Project Unlock`,
+        image: "/logo.png",
+        order_id: order.orderId,
+        prefill: { name: user?.name || currentUser.displayName || "", email: user?.email || currentUser.email || "" },
+        theme: { color: "#2563EB" },
+        handler: async (response: any) => {
+          try {
+            const verifyToken = await currentUser.getIdToken(true);
+            const verifyResponse = await fetch("/api/payments/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${verifyToken}` },
+              body: JSON.stringify({
+                orderId: response.razorpay_order_id || order.orderId,
+                paymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+                projectId: project.id,
+                duration: selectedDuration,
+              }),
+            });
+            const verified = await verifyResponse.json();
+            if (!verifyResponse.ok) throw new Error(verified.error || "Payment verification failed");
+            
+            alert(`🎉 Project "${project.title}" unlocked successfully! Opening Project Workspace...`);
+            onClose();
+            if (onActivated) onActivated();
+            router.push(`/my-projects/${project.slug || project.id}`);
+          } catch (err: any) {
+            setActiveProjectError(err.message || "Payment verification failed");
+          } finally {
+            setPaymentLoading(false);
+          }
+        },
+        modal: { ondismiss: () => setPaymentLoading(false) },
+      });
+      razorpay.on("payment.failed", (response: any) => {
+        setPaymentLoading(false);
+        setActiveProjectError(response.error?.description || "Payment was not completed.");
+      });
+      razorpay.open();
+    } catch (err: any) {
+      setPaymentLoading(false);
+      setActiveProjectError(err.message || "Unable to start project checkout");
+    }
+  };
 
   if (!isOpen || !project) return null;
 
@@ -260,25 +334,63 @@ export function ProjectActivationModal({
           </div>
         ) : subscriptionRequired ? (
           <div className="space-y-5">
-            <div className="text-center space-y-2">
+            <div className="text-center space-y-1.5">
               <div className="w-12 h-12 rounded-2xl bg-blue-500/15 text-blue-400 flex items-center justify-center mx-auto"><Lock className="w-6 h-6" /></div>
-              <h4 className="text-lg font-black text-white">Choose a SC TECH plan to unlock Real-World Projects</h4>
-              <p className="text-xs text-slate-300">Real-World Projects are available with Plus, Pro and Career plans.</p>
+              <h4 className="text-lg font-black text-white">Unlock Real-World Project</h4>
+              <p className="text-xs text-slate-300">Purchase access for this single project or subscribe to access all 25+ real-world projects.</p>
             </div>
-            <div className="grid gap-2">
-              {DEFAULT_PLANS.filter((plan) => ["STARTER", "PLUS", "PRO", "CAREER"].includes(plan.code)).map((plan) => {
-                const eligible = plan.priceMonthly >= 399;
-                const selected = selectedPlan.code === plan.code;
-                return (
-                  <button key={plan.code} type="button" onClick={() => eligible && setSelectedPlan(plan)} className={`text-left p-3 rounded-xl border ${selected ? "border-blue-500 bg-blue-500/10" : "border-slate-800 bg-slate-950"} ${!eligible ? "opacity-70" : ""}`}>
-                    <div className="flex items-center justify-between"><span className="text-sm font-bold text-white">{plan.name} — ₹{plan.priceMonthly}/month</span><span className={`text-[11px] font-bold ${eligible ? "text-emerald-400" : "text-slate-500"}`}>Projects Access: {eligible ? "Included" : "Not included"}</span></div>
-                  </button>
-                );
-              })}
+
+            {/* Option 1: Direct Single Project Unlock */}
+            <div className="p-4 rounded-2xl bg-gradient-to-b from-blue-950/60 to-slate-950 border border-blue-500/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-black text-white block">Unlock This Single Project</span>
+                  <span className="text-[11px] text-slate-400">{project.title} • Includes 8 Milestones, Evaluation & Certificate</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-lg font-black text-emerald-400">₹{project.price || 299}</span>
+                  <span className="text-[10px] text-slate-400 block">One-time fee</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={paymentLoading}
+                onClick={handleDirectProjectCheckout}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {paymentLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Processing Payment...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    <span>Pay ₹{project.price || 299} & Unlock ONLY This Project 🔓</span>
+                  </>
+                )}
+              </button>
             </div>
-            <button type="button" disabled={paymentLoading} onClick={handleSubscriptionCheckout} className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold disabled:opacity-50">
-              {paymentLoading ? "Opening secure checkout..." : `Choose ${selectedPlan.name} – ₹${selectedPlan.priceMonthly}/month`}
-            </button>
+
+            {/* Option 2: Full Subscription Plan */}
+            <div className="space-y-2 pt-2 border-t border-slate-800">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block text-center">Or Choose an Unlimited Subscription Plan</span>
+              <div className="grid gap-2">
+                {DEFAULT_PLANS.filter((plan) => ["PLUS", "PRO", "CAREER"].includes(plan.code)).map((plan) => {
+                  const eligible = plan.priceMonthly >= 399;
+                  const selected = selectedPlan.code === plan.code;
+                  return (
+                    <button key={plan.code} type="button" onClick={() => eligible && setSelectedPlan(plan)} className={`text-left p-3 rounded-xl border transition ${selected ? "border-blue-500 bg-blue-500/10" : "border-slate-800 bg-slate-950"} ${!eligible ? "opacity-70" : ""}`}>
+                      <div className="flex items-center justify-between"><span className="text-sm font-bold text-white">{plan.name} — ₹{plan.priceMonthly}/month</span><span className={`text-[11px] font-bold ${eligible ? "text-emerald-400" : "text-slate-500"}`}>All 25+ Projects Access</span></div>
+                    </button>
+                  );
+                })}
+              </div>
+              <button type="button" disabled={paymentLoading} onClick={handleSubscriptionCheckout} className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 disabled:opacity-50">
+                {paymentLoading ? "Opening checkout..." : `Subscribe to ${selectedPlan.name} – ₹${selectedPlan.priceMonthly}/month`}
+              </button>
+            </div>
           </div>
         ) : activeProjectError ? (
           /* BLOCKED: ACTIVE PROJECT ALREADY EXISTS */

@@ -42,7 +42,7 @@ export default function AdminProjectEnrollmentsPage() {
   const [evaluating, setEvaluating] = useState(false);
   const [evalForm, setEvalForm] = useState({
     score: 85,
-    status: "APPROVED" as "APPROVED" | "REVISION_REQUIRED" | "REJECTED",
+    status: "APPROVED" as "APPROVED" | "PARTIALLY_COMPLETED" | "REVISION_REQUIRED" | "REJECTED",
     strengths: "Clean architecture, well-structured components, robust error handling.",
     weaknesses: "Can improve test coverage for edge-case network failures.",
     improvements: "Consider adding distributed caching and CI/CD integration.",
@@ -495,7 +495,8 @@ export default function AdminProjectEnrollmentsPage() {
                     onChange={(e) => setEvalForm({ ...evalForm, status: e.target.value as any })}
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 font-bold text-sm"
                   >
-                    <option value="APPROVED">APPROVED (Graduated & Completed)</option>
+                    <option value="APPROVED">APPROVED (Full 8/8 Tasks Completed & Graduated)</option>
+                    <option value="PARTIALLY_COMPLETED">PARTIALLY_COMPLETED (Partial Tasks e.g. 4/8 — Stipend Only, No Certificate)</option>
                     <option value="REVISION_REQUIRED">REVISION_REQUIRED (Feedback sent back)</option>
                     <option value="REJECTED">REJECTED (Did not meet standards)</option>
                   </select>
@@ -586,23 +587,32 @@ export default function AdminProjectEnrollmentsPage() {
                         onChange={(e) => setEvalForm({ ...evalForm, stipendAmount: Number(e.target.value) })}
                         className="px-3 py-1.5 rounded-xl bg-slate-950 border border-emerald-500/40 text-emerald-300 font-bold"
                       >
-                        <option value={5000}>₹5,000 (8/8 Tasks Approved)</option>
-                        <option value={1200}>₹1,200 (6-7 Tasks Approved)</option>
+                        <option value={5000}>₹5,000 (8/8 Full Tasks Approved)</option>
+                        <option value={2500}>₹2,500 (6-7 Tasks Approved)</option>
+                        <option value={1000}>₹1,000 (4/8 Partial Tasks Approved)</option>
                         <option value={0}>₹0 (Not Eligible)</option>
                       </select>
                     </div>
                   )}
                 </div>
 
-                <label className="flex items-center gap-2 text-slate-200 cursor-pointer pt-1">
-                  <input
-                    type="checkbox"
-                    checked={evalForm.certificateApproved}
-                    onChange={(e) => setEvalForm({ ...evalForm, certificateApproved: e.target.checked })}
-                    className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-0"
-                  />
-                  <span className="font-semibold">Clear for Project Certificate Generation (Signed by Charudeshna & Sridharan)</span>
-                </label>
+                <div className="pt-1">
+                  <label className={`flex items-center gap-2 text-slate-200 ${evalForm.status === "PARTIALLY_COMPLETED" ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
+                    <input
+                      type="checkbox"
+                      disabled={evalForm.status === "PARTIALLY_COMPLETED"}
+                      checked={evalForm.status !== "PARTIALLY_COMPLETED" && evalForm.certificateApproved}
+                      onChange={(e) => setEvalForm({ ...evalForm, certificateApproved: e.target.checked })}
+                      className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-0"
+                    />
+                    <span className="font-semibold">Clear for Project Certificate Generation (Signed by Charudeshna & Sridharan)</span>
+                  </label>
+                  {evalForm.status === "PARTIALLY_COMPLETED" && (
+                    <p className="text-[10px] text-amber-400 mt-1">
+                      ⚠️ Partial completion grants stipend eligibility but strictly blocks certificate issuance until all 8 tasks are completed.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Submit Buttons */}

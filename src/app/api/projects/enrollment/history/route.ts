@@ -8,15 +8,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(req);
-    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
-    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
-    const { searchParams } = new URL(req.url);
-    const userId = session?.userId;
-
-    if (!userId) {
-      return NextResponse.json({ history: [] });
+    if (!session?.userId) {
+      return NextResponse.json({ error: "Unauthorized. Please log in to view project history." }, { status: 401 });
     }
 
+    const userId = session.userId;
     const history = await getStudentProjectHistory(userId);
     return NextResponse.json({
       success: true,

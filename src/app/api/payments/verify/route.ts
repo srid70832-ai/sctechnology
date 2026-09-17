@@ -4,6 +4,15 @@ import { getServerSession } from "@/lib/auth";
 import { getRazorpayMode, verifyRazorpayPayment } from "@/lib/payment";
 import { processReferralConversion } from "@/lib/referrals/service";
 import { DEFAULT_PLANS } from "@/lib/plans";
+import { getProjectBySlug } from "@/lib/projects-service";
+import { getTasksForProject } from "@/lib/project-tasks-data";
+import { 
+  calculateDeadline, 
+  getDurationMonths, 
+  getRemainingDays, 
+  ProjectDurationOption, 
+  ProjectEnrollment 
+} from "@/lib/project-lifecycle-service";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +40,7 @@ export async function POST(req: Request) {
     if (!adminDb) return NextResponse.json({ error: "Payment service is unavailable" }, { status: 503 });
 
     const body = await req.json();
-    const { orderId, paymentId, signature, billingCycle = "MONTHLY" } = body;
+    const { orderId, paymentId, signature, billingCycle = "MONTHLY", projectId: reqProjectId, duration: reqDuration } = body;
 
     if (!orderId || !paymentId) {
       return NextResponse.json({ error: "Order ID and Payment ID are required" }, { status: 400 });
@@ -50,6 +59,16 @@ export async function POST(req: Request) {
 
     if (!snap.empty && snap.docs[0].data().status === "SUCCESS") {
       const existingPayment = snap.docs[0].data();
+      if (existingPayment.type === "PROJECT_PURCHASE" || existingPayment.projectId) {
+        return NextResponse.json({
+          success: true,
+          message: "Project payment already verified and active",
+          projectUnlocked: true,
+          projectId: existingPayment.projectId,
+          projectTitle: existingPayment.projectTitle,
+        });
+      }
+
       const existingSubscription = await adminDb.collection("subscriptions").doc(uid).get();
       const subscription = existingSubscription.exists ? existingSubscription.data() : null;
       return NextResponse.json({
@@ -73,6 +92,156 @@ export async function POST(req: Request) {
     }
 
     const orderData = orderSnap.docs[0].data();
+    const orderType = orderData.type || (orderData.projectId ? "PROJECT_PURCHASE" : "SUBSCRIPTION");
+    const targetProjectId = orderData.projectId || reqProjectId;
+
+    // A) Handle Direct Real-World Project Purchase
+    if (orderType === "PROJECT_PURCHASE" || targetProjectId) {
+      const project = await getProjectBySlug(targetProjectId);
+      const projectTitle = project?.title || orderData.projectTitle || "Real-World Project";
+      const projectId = project?.id || targetProjectId;
+
+      await orderSnap.docs[0].ref.update({
+        userId: uid,
+        userName,
+        userEmail,
+        projectId,
+        projectTitle,
+        type: "PROJECT_PURCHASE",
+        razorpayPaymentId: paymentId,
+        status: "SUCCESS",
+        mode: getRazorpayMode(),
+        verifiedAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Record in projectPurchases collection
+      const purchaseDocId = `${uid}_${projectId}`;
+      await adminDb.collection("projectPurchases").doc(purchaseDocId).set({
+        id: purchaseDocId,
+        userId: uid,
+        userName,
+        userEmail,
+        projectId,
+        projectSlug: project?.slug || projectId,
+        projectTitle,
+        amount: orderData.amount || project?.price || 299,
+        currency: "INR",
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        status: "PAID",
+        mode: getRazorpayMode(),
+        purchasedAt: new Date(),
+        updatedAt: new Date(),
+      }, { merge: true });
+
+      // Automatically initialize Enrollment and Tasks for this project
+      const duration: ProjectDurationOption = reqDuration || "2_MONTHS";
+      const now = new Date();
+      const startDate = now.toISOString();
+      const deadline = calculateDeadline(now, duration).toISOString();
+      const enrollmentId = `ENR-${now.getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+      const blueprints = getTasksForProject(project?.slug || projectId);
+      const batch = adminDb.batch();
+
+      for (const blueprint of blueprints) {
+        const taskId = `${uid}_${projectId}_${blueprint.taskNumber}`;
+        batch.set(adminDb.collection("userProjectTasks").doc(taskId), {
+          id: taskId,
+          userId: uid,
+          projectId,
+          projectSlug: project?.slug || projectId,
+          taskBlueprintId: blueprint.id,
+          taskNumber: blueprint.taskNumber,
+          title: blueprint.title,
+          description: blueprint.description,
+          difficulty: blueprint.difficulty,
+          isImportant: Boolean(blueprint.isImportant),
+          importanceRationale: blueprint.importanceRationale,
+          requirements: blueprint.requirements,
+          expectedOutput: blueprint.expectedOutput,
+          evaluationCriteria: blueprint.evaluationCriteria,
+          skills: blueprint.skills,
+          status: "ASSIGNED",
+          assignedAt: startDate,
+          updatedAt: startDate,
+        }, { merge: true });
+      }
+
+      // Check if existing enrollment exists for this user and project
+      const existingEnrSnap = await adminDb.collection("projectEnrollments")
+        .where("studentId", "==", uid)
+        .where("projectId", "==", projectId)
+        .limit(1)
+        .get();
+
+      let finalEnrollmentId = enrollmentId;
+
+      if (!existingEnrSnap.empty) {
+        finalEnrollmentId = existingEnrSnap.docs[0].id;
+        batch.update(existingEnrSnap.docs[0].ref, {
+          paymentStatus: "PAID",
+          paymentType: "DIRECT_ENROLLMENT",
+          paymentId,
+          projectStatus: "ACTIVE",
+          updatedAt: startDate,
+        });
+      } else {
+        const enrollment: ProjectEnrollment = {
+          id: enrollmentId,
+          studentId: uid,
+          studentName: userName,
+          studentEmail: userEmail,
+          projectId,
+          projectSlug: project?.slug || projectId,
+          projectTitle,
+          projectCategory: project?.category || "Full Stack Development",
+          projectDifficulty: project?.difficulty || "INTERMEDIATE",
+          planId: "DIRECT_PROJECT",
+          paymentType: "DIRECT_ENROLLMENT",
+          activationFee: orderData.amount || 299,
+          paymentStatus: "PAID",
+          paymentId,
+          selectedDuration: duration,
+          durationMonths: getDurationMonths(duration),
+          startDate,
+          deadline,
+          remainingDays: getRemainingDays(deadline),
+          projectStatus: "ACTIVE",
+          taskProgress: { total: blueprints.length || 8, approved: 0, submitted: 0 },
+          stipendStatus: "NOT_ELIGIBLE",
+          stipendAmount: 0,
+          createdAt: startDate,
+          updatedAt: startDate,
+        };
+        batch.set(adminDb.collection("projectEnrollments").doc(enrollmentId), enrollment);
+      }
+
+      await batch.commit();
+
+      // Create confirmation notification in Firestore
+      await adminDb.collection("notifications").add({
+        userId: uid,
+        title: `Project Unlocked: ${projectTitle} 🔓`,
+        message: `Your payment was verified in ${getRazorpayMode()} mode. You have full access to start building and submitting your milestones.`,
+        type: "PAYMENT",
+        read: false,
+        link: `/my-projects/${project?.slug || projectId}`,
+        createdAt: new Date(),
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Payment verified! Project "${projectTitle}" has been unlocked.`,
+        projectUnlocked: true,
+        projectId,
+        projectSlug: project?.slug || projectId,
+        projectTitle,
+        enrollmentId: finalEnrollmentId,
+        mode: getRazorpayMode(),
+      });
+    }
+
     const planId = String(orderData.planId || "").toUpperCase();
     const verifiedPlan = DEFAULT_PLANS.find((plan) => plan.code === planId);
     if (!verifiedPlan) {

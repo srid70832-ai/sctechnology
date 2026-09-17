@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, getServerSession } from "@/lib/auth";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { removeUndefinedValues } from "@/lib/firestore";
 import { DEFAULT_EVALUATION_CRITERIA, ProblemStatement } from "@/lib/problem-statements";
@@ -37,7 +37,7 @@ function safeParseArray(val: any): string[] {
       if (Array.isArray(parsed)) return parsed.map(String).map((s) => s.trim()).filter(Boolean);
       return [val.trim()].filter(Boolean);
     } catch {
-      return val.split(",").map((s) => s.trim()).filter(Boolean);
+      return val.split("\n").map((s) => s.trim()).filter(Boolean);
     }
   }
   return [];
@@ -53,24 +53,30 @@ function formatProblemStatementDoc(id: string, data: any): ProblemStatement {
     }
   } catch {}
 
+  const description = data.description || data.shortDescription || "";
+
   return {
     id,
     problemStatementId: data.problemStatementId || id,
     slug: data.slug || id,
+    hackathonId: data.hackathonId || null,
+    hackathonTitle: data.hackathonTitle || undefined,
+    problemCode: data.problemCode || "PS-01",
     title: data.title || "Untitled Problem Statement",
-    shortDescription: data.shortDescription || data.description || "",
-    fullProblemDescription: data.fullProblemDescription || data.description || data.shortDescription || "",
-    background: data.background || "",
-    problemCategory: data.problemCategory || "Open Innovation",
+    category: data.category || data.problemCategory || data.domain || "Technology",
     domain: data.domain || "Software Engineering",
     difficulty: (data.difficulty || "MEDIUM").toUpperCase() as any,
-    organization: data.organization || "SC TECH Original Challenge",
-    organizationType: (data.organizationType || "SC_TECH_ORIGINAL") as any,
-    location: data.location || "India / Global",
+    description,
+    shortDescription: data.shortDescription || description,
+    fullProblemDescription: data.fullProblemDescription || description,
+    background: data.background || "",
     targetUsers: data.targetUsers || "",
     existingChallenges: data.existingChallenges || "",
     expectedOutcome: data.expectedOutcome || "",
-    proposedSolutionAreas: safeParseArray(data.proposedSolutionAreas),
+    expectedSolution: data.expectedSolution || data.expectedOutcome || "",
+    objectives: safeParseArray(data.objectives),
+    requirements: safeParseArray(data.requirements),
+    proposedSolutionAreas: safeParseArray(data.proposedSolutionAreas || data.requirements),
     requiredSkills: safeParseArray(data.requiredSkills),
     technologySuggestions: safeParseArray(data.technologySuggestions),
     constraints: data.constraints || "",
@@ -79,13 +85,22 @@ function formatProblemStatementDoc(id: string, data: any): ProblemStatement {
     teamSizeMax: Number(data.teamSizeMax) || 4,
     submissionRequirements: data.submissionRequirements || "GitHub repository + Live URL + Walkthrough Video",
     evaluationCriteria: evalCriteria,
+    resources: safeParseArray(data.resources),
+    suggestedDeliverables: data.suggestedDeliverables || "",
+    organization: data.organization || "SC TECH Original Challenge",
+    organizationType: (data.organizationType || "SC_TECH_ORIGINAL") as any,
+    location: data.location || "India / Global",
     deadline: data.deadline ? toISOStringSafe(data.deadline) : "",
     sourceUrl: data.sourceUrl || undefined,
     sourceName: data.sourceName || undefined,
     isAiGenerated: Boolean(data.isAiGenerated),
     verificationStatus: (data.verificationStatus || "SC_TECH_ORIGINAL") as any,
-    createdBy: data.createdBy || "ADMIN",
     status: (data.status || "PUBLISHED").toUpperCase() as any,
+    scheduledReleaseAt: data.scheduledReleaseAt ? toISOStringSafe(data.scheduledReleaseAt) : null,
+    publishedAt: data.publishedAt ? toISOStringSafe(data.publishedAt) : null,
+    displayOrder: Number(data.displayOrder) || 1,
+    createdBy: data.createdBy || "ADMIN",
+    updatedBy: data.updatedBy || undefined,
     createdAt: toISOStringSafe(data.createdAt),
     updatedAt: toISOStringSafe(data.updatedAt),
   };
@@ -108,10 +123,13 @@ async function findDocByIdOrSlug(adminDb: FirebaseFirestore.Firestore, idOrSlug:
 
 /**
  * GET /api/problem-statements/[id]
- * Public / Student / Admin retrieval of a problem statement
+ * Public / Student / Admin retrieval with strict visibility gating
  */
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
+    const session = await getServerSession(req);
+    const isAdmin = session?.role === "ADMIN" || session?.role === "SUPER_ADMIN";
+
     const adminDb = getAdminDb();
     if (!adminDb) {
       return NextResponse.json({ success: false, error: "Database configuration error." }, { status: 500 });
@@ -123,6 +141,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     }
 
     const statement = formatProblemStatementDoc(found.id, found.data);
+
+    // Non-admin student visibility check
+    if (!isAdmin) {
+      if (statement.status !== "PUBLISHED") {
+        return NextResponse.json({ success: false, error: "Problem statement is not published." }, { status: 403 });
+      }
+      if (statement.scheduledReleaseAt && new Date(statement.scheduledReleaseAt).getTime() > Date.now()) {
+        return NextResponse.json({ success: false, error: "Problem statement release is scheduled for a future time." }, { status: 403 });
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -136,12 +164,12 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 }
 
 /**
- * PUT / PATCH /api/problem-statements/[id]
+ * PATCH /api/problem-statements/[id]
  * Protected: Admin only
  */
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
-    const { authorized, errorResponse } = await requireAdmin(req);
+    const { authorized, session, errorResponse } = await requireAdmin(req);
     if (!authorized) return errorResponse;
 
     const adminDb = getAdminDb();
@@ -156,22 +184,28 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     const body = await req.json();
     const updateData: Record<string, any> = {};
+    const nowIso = new Date().toISOString();
 
     if (body.title !== undefined) updateData.title = String(body.title).trim();
-    if (body.shortDescription !== undefined || body.description !== undefined) {
-      updateData.shortDescription = String(body.shortDescription || body.description).trim();
+    if (body.problemCode !== undefined) updateData.problemCode = String(body.problemCode).trim();
+    if (body.hackathonId !== undefined) updateData.hackathonId = body.hackathonId || null;
+    if (body.hackathonTitle !== undefined) updateData.hackathonTitle = body.hackathonTitle;
+    if (body.category !== undefined) updateData.category = body.category;
+    if (body.domain !== undefined) updateData.domain = body.domain;
+    if (body.difficulty !== undefined) updateData.difficulty = String(body.difficulty).toUpperCase();
+    if (body.description !== undefined || body.shortDescription !== undefined) {
+      const desc = String(body.description || body.shortDescription).trim();
+      updateData.description = desc;
+      updateData.shortDescription = desc;
     }
     if (body.fullProblemDescription !== undefined) updateData.fullProblemDescription = String(body.fullProblemDescription).trim();
     if (body.background !== undefined) updateData.background = body.background ? String(body.background).trim() : "";
-    if (body.problemCategory !== undefined) updateData.problemCategory = body.problemCategory;
-    if (body.domain !== undefined) updateData.domain = body.domain;
-    if (body.difficulty !== undefined) updateData.difficulty = String(body.difficulty).toUpperCase();
-    if (body.organization !== undefined) updateData.organization = body.organization;
-    if (body.organizationType !== undefined) updateData.organizationType = body.organizationType;
-    if (body.location !== undefined) updateData.location = body.location;
     if (body.targetUsers !== undefined) updateData.targetUsers = body.targetUsers;
     if (body.existingChallenges !== undefined) updateData.existingChallenges = body.existingChallenges;
     if (body.expectedOutcome !== undefined) updateData.expectedOutcome = body.expectedOutcome;
+    if (body.expectedSolution !== undefined) updateData.expectedSolution = body.expectedSolution;
+    if (body.objectives !== undefined) updateData.objectives = safeParseArray(body.objectives);
+    if (body.requirements !== undefined) updateData.requirements = safeParseArray(body.requirements);
     if (body.proposedSolutionAreas !== undefined) updateData.proposedSolutionAreas = safeParseArray(body.proposedSolutionAreas);
     if (body.requiredSkills !== undefined) updateData.requiredSkills = safeParseArray(body.requiredSkills);
     if (body.technologySuggestions !== undefined) updateData.technologySuggestions = safeParseArray(body.technologySuggestions);
@@ -185,24 +219,36 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         ? body.evaluationCriteria
         : DEFAULT_EVALUATION_CRITERIA;
     }
-    if (body.status !== undefined) updateData.status = String(body.status).toUpperCase();
-    if (body.deadline !== undefined) updateData.deadline = body.deadline ? toISOStringSafe(body.deadline) : "";
-    if (body.sourceUrl !== undefined) updateData.sourceUrl = body.sourceUrl;
-    if (body.sourceName !== undefined) updateData.sourceName = body.sourceName;
-    if (body.verificationStatus !== undefined) updateData.verificationStatus = body.verificationStatus;
+    if (body.resources !== undefined) updateData.resources = safeParseArray(body.resources);
+    if (body.suggestedDeliverables !== undefined) updateData.suggestedDeliverables = body.suggestedDeliverables;
+    if (body.displayOrder !== undefined) updateData.displayOrder = Number(body.displayOrder);
 
-    updateData.updatedAt = new Date().toISOString();
+    if (body.status !== undefined) {
+      const st = String(body.status).toUpperCase();
+      updateData.status = st;
+      if (st === "PUBLISHED") {
+        updateData.publishedAt = nowIso;
+      } else if (st === "SCHEDULED" && body.scheduledReleaseAt) {
+        updateData.scheduledReleaseAt = toISOStringSafe(body.scheduledReleaseAt);
+      }
+    }
+    if (body.scheduledReleaseAt !== undefined) {
+      updateData.scheduledReleaseAt = body.scheduledReleaseAt ? toISOStringSafe(body.scheduledReleaseAt) : null;
+    }
+    if (body.deadline !== undefined) updateData.deadline = body.deadline ? toISOStringSafe(body.deadline) : "";
+
+    updateData.updatedBy = session?.userId || "ADMIN";
+    updateData.updatedAt = nowIso;
 
     const cleanedUpdate = removeUndefinedValues(updateData);
     await adminDb.collection("problemStatements").doc(found.id).set(cleanedUpdate, { merge: true });
 
-    // Verify update
     const verifySnap = await adminDb.collection("problemStatements").doc(found.id).get();
     const updated = formatProblemStatementDoc(found.id, verifySnap.data());
 
     return NextResponse.json({
       success: true,
-      message: "Problem statement updated successfully.",
+      message: `Problem statement updated successfully (Status: ${updated.status}).`,
       statement: updated,
       problemStatement: updated,
     });
@@ -244,4 +290,3 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ success: false, error: error?.message || "Failed to delete problem statement" }, { status: 500 });
   }
 }
-

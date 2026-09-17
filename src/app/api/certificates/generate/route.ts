@@ -10,6 +10,7 @@ import {
   CertificateMetadata
 } from "@/lib/certificate-system";
 import { formatDate } from "@/lib/utils";
+import { getAdminDb } from "@/lib/firebase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -62,9 +63,77 @@ export async function POST(req: Request) {
       courseProvider,
       duration,
       skills,
+      promotionUrl,
     } = body;
 
-    // 2. Duplicate Prevention: Check if exact certificate record already exists
+    // 2. Strict Backend Completion & Verification Gating
+    const adminDb = getAdminDb();
+    let matchingEnrollmentDocId: string | null = null;
+
+    if (certificateType === "PROJECT") {
+      const targetProjId = projectId || "";
+      const targetProjName = projectName || "";
+
+      if (!targetProjId && !targetProjName) {
+        return NextResponse.json({ error: "Project ID or Project Name is required for project certification." }, { status: 400 });
+      }
+
+      if (adminDb) {
+        const enrSnap = await adminDb.collection("projectEnrollments")
+          .where("studentId", "==", session.userId)
+          .get();
+
+        let matchingEnrollment: any = null;
+        for (const doc of enrSnap.docs) {
+          const data = doc.data();
+          if (
+            (targetProjId && (data.projectId === targetProjId || data.projectSlug === targetProjId || doc.id === targetProjId)) ||
+            (targetProjName && data.projectTitle?.toLowerCase() === targetProjName.toLowerCase())
+          ) {
+            matchingEnrollment = data;
+            matchingEnrollmentDocId = doc.id;
+            break;
+          }
+        }
+
+        if (!matchingEnrollment) {
+          return NextResponse.json(
+            { 
+              error: "Certificate is locked. You have not enrolled in this Real-World Project.",
+              isLocked: true 
+            }, 
+            { status: 403 }
+          );
+        }
+
+        const isCompleted = matchingEnrollment.projectStatus === "COMPLETED";
+        const isApproved = matchingEnrollment.evaluation?.certificateApproved === true || matchingEnrollment.evaluation?.status === "APPROVED";
+
+        if (!isCompleted || !isApproved) {
+          const currentStatus = matchingEnrollment.projectStatus || "IN_PROGRESS";
+          return NextResponse.json(
+            { 
+              error: `Certificate is locked (Status: ${currentStatus}). You must submit your project deliverables (GitHub repository + live URL) and receive approval from the SC TECH Evaluation Board before generating your certificate.`,
+              isLocked: true,
+              projectStatus: currentStatus,
+            }, 
+            { status: 403 }
+          );
+        }
+
+        if (matchingEnrollment.certificatePromotionRequired && !matchingEnrollment.promotionUrl && !promotionUrl) {
+          return NextResponse.json(
+            {
+              error: "Certificate promotion step required. Please share your project milestone publicly (LinkedIn/Twitter) and submit the link.",
+              requiresPromotion: true,
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    // 3. Duplicate Prevention: Check if exact certificate record already exists in Prisma or Firestore
     const existingCerts = await prisma.certificate.findMany({
       where: {
         studentId: session.userId,
@@ -117,7 +186,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Generate Official Unique Certificate Identifier & Cryptographic Code
+    // 4. Generate Official Unique Certificate Identifier & Cryptographic Code
     const certificateNo = generateCertificateId(certificateType);
     const verificationCode = generateVerificationCode(certificateNo, session.userId);
     const issueDate = new Date();
@@ -173,7 +242,7 @@ export async function POST(req: Request) {
       },
     };
 
-    // 4. Save into Database
+    // 5. Save into Prisma Database
     const newCert = await prisma.certificate.create({
       data: {
         certificateNo,
@@ -189,7 +258,47 @@ export async function POST(req: Request) {
       },
     });
 
-    // 5. Trigger In-App Notification
+    // 6. Save into Firestore Certificates Collection for instant public verification & wallet sync
+    if (adminDb) {
+      try {
+        const firestoreCertData = {
+          id: certificateNo,
+          certificateNo,
+          studentId: session.userId,
+          studentName: cleanName,
+          title: wording.headerTitle,
+          eventName: eventName || internshipTitle || courseName || projectName || "SC TECH Certification Track",
+          type: certificateType,
+          issueDate: issueDate.toISOString(),
+          status: "VERIFIED",
+          metadata: JSON.stringify(metadata),
+          parsedMetadata: metadata,
+          verificationCode,
+          createdAt: issueDate.toISOString(),
+          updatedAt: issueDate.toISOString(),
+        };
+
+        await adminDb.collection("certificates").doc(certificateNo).set(firestoreCertData, { merge: true });
+
+        // Update Project Enrollment with Certificate Number & Promotion URL
+        if (matchingEnrollmentDocId) {
+          const updateData: any = {
+            certificateId: certificateNo,
+            certificateIssuedAt: issueDate.toISOString(),
+            updatedAt: issueDate.toISOString(),
+          };
+          if (promotionUrl) {
+            updateData.promotionUrl = promotionUrl;
+            updateData.promotionSubmittedAt = issueDate.toISOString();
+          }
+          await adminDb.collection("projectEnrollments").doc(matchingEnrollmentDocId).set(updateData, { merge: true });
+        }
+      } catch (fsErr) {
+        console.warn("Notice: Firestore certificate mirror write error:", fsErr);
+      }
+    }
+
+    // 7. Trigger In-App Notification
     try {
       await prisma.notification.create({
         data: {

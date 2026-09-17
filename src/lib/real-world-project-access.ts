@@ -32,10 +32,13 @@ function subscriptionIsActive(subscription: Record<string, any>): boolean {
   return Boolean(expiresAt && expiresAt.getTime() > Date.now());
 }
 
-export async function hasRealWorldProjectsAccess(user: {
-  uid?: string | null;
-  role?: string | null;
-} | null): Promise<RealWorldProjectsAccessResult> {
+export async function hasRealWorldProjectsAccess(
+  user: {
+    uid?: string | null;
+    role?: string | null;
+  } | null,
+  projectId?: string | null
+): Promise<RealWorldProjectsAccessResult> {
   const uid = user?.uid || null;
   if (!uid) {
     return { hasAccess: false, uid: null, planCode: "NONE", planName: "Unauthenticated", planPrice: 0, reason: "UNAUTHENTICATED" };
@@ -48,6 +51,47 @@ export async function hasRealWorldProjectsAccess(user: {
   const adminDb = getAdminDb();
   if (!adminDb) {
     throw new Error("Firebase Admin SDK is unavailable");
+  }
+
+  // Check direct project purchase if projectId is supplied
+  if (projectId) {
+    const purchaseSnap = await adminDb.collection("projectPurchases")
+      .where("userId", "==", uid)
+      .where("status", "==", "PAID")
+      .get();
+    
+    for (const doc of purchaseSnap.docs) {
+      const data = doc.data();
+      if (data.projectId === projectId || data.projectSlug === projectId || doc.id === `${uid}_${projectId}`) {
+        return {
+          hasAccess: true,
+          uid,
+          planCode: "DIRECT_PURCHASE",
+          planName: data.projectTitle || "Purchased Project",
+          planPrice: data.amount || 299,
+          reason: "ACTIVE_ENTITLEMENT",
+        };
+      }
+    }
+
+    const enrollmentSnap = await adminDb.collection("projectEnrollments")
+      .where("studentId", "==", uid)
+      .where("paymentStatus", "==", "PAID")
+      .get();
+
+    for (const doc of enrollmentSnap.docs) {
+      const data = doc.data();
+      if (data.projectId === projectId || data.projectSlug === projectId) {
+        return {
+          hasAccess: true,
+          uid,
+          planCode: data.planId || "DIRECT_PURCHASE",
+          planName: data.projectTitle || "Enrolled Project",
+          planPrice: data.activationFee || 299,
+          reason: "ACTIVE_ENTITLEMENT",
+        };
+      }
+    }
   }
 
   const subscriptionSnap = await adminDb.collection("subscriptions").doc(uid).get();

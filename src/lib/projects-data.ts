@@ -43,6 +43,7 @@ export interface ProjectData {
   sourceCodeSnippet: string;
   isPremium: boolean;
   accessLevel: "PREMIUM_399" | "FREE";
+  price?: number;
   downloadCount: number;
   published: boolean;
 }

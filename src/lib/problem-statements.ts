@@ -11,8 +11,10 @@ import {
   where, 
   orderBy, 
   limit, 
+  onSnapshot,
   serverTimestamp, 
-  Timestamp 
+  Timestamp,
+  Unsubscribe
 } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -26,35 +28,49 @@ export interface ProblemStatement {
   id?: string;
   problemStatementId?: string;
   slug?: string;
+  hackathonId?: string | null;
+  hackathonTitle?: string;
+  problemCode?: string; // e.g. "PS-01", "AI-HLT-01"
   title: string;
+  category?: string;
+  problemCategory?: string;
+  domain?: string;
+  difficulty?: "EASY" | "MEDIUM" | "HARD";
+  description?: string;
   shortDescription: string;
-  fullProblemDescription: string;
-  background: string;
-  problemCategory: string;
-  domain: string;
-  difficulty: "EASY" | "MEDIUM" | "HARD";
-  organization: string;
-  organizationType: "GOVERNMENT" | "INDUSTRY" | "NON_PROFIT" | "ACADEMIC" | "SC_TECH_ORIGINAL";
-  location: string;
-  targetUsers: string;
-  existingChallenges: string;
-  expectedOutcome: string;
-  proposedSolutionAreas: string[];
-  requiredSkills: string[];
-  technologySuggestions: string[];
-  constraints: string;
-  eligibility: string;
-  teamSizeMin: number;
-  teamSizeMax: number;
-  submissionRequirements: string;
-  evaluationCriteria: EvaluationCriterion[];
-  deadline: string;
+  fullProblemDescription?: string;
+  background?: string;
+  targetUsers?: string;
+  existingChallenges?: string;
+  expectedOutcome?: string;
+  expectedSolution?: string;
+  objectives?: string[];
+  requirements?: string[];
+  proposedSolutionAreas?: string[];
+  requiredSkills?: string[];
+  technologySuggestions?: string[];
+  constraints?: string;
+  eligibility?: string;
+  teamSizeMin?: number;
+  teamSizeMax?: number;
+  submissionRequirements?: string;
+  evaluationCriteria?: EvaluationCriterion[];
+  resources?: string[];
+  suggestedDeliverables?: string;
+  organization?: string;
+  organizationType?: "GOVERNMENT" | "INDUSTRY" | "NON_PROFIT" | "ACADEMIC" | "SC_TECH_ORIGINAL";
+  location?: string;
+  deadline?: string;
   sourceUrl?: string;
   sourceName?: string;
   isAiGenerated?: boolean;
   verificationStatus?: "VERIFIED" | "REQUIRES_VERIFICATION" | "SC_TECH_ORIGINAL";
-  createdBy: string;
-  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "CLOSED" | "ARCHIVED";
+  status: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "ARCHIVED" | "PENDING_REVIEW" | "CLOSED";
+  scheduledReleaseAt?: string | null;
+  publishedAt?: string | null;
+  displayOrder?: number;
+  createdBy?: string;
+  updatedBy?: string;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -142,13 +158,10 @@ export interface AiGenerationAudit {
 }
 
 export const DEFAULT_EVALUATION_CRITERIA: EvaluationCriterion[] = [
-  { category: "Problem Understanding", maxMarks: 15, description: "Depth of comprehension of the domain problem and target user pain points." },
-  { category: "Innovation & Uniqueness", maxMarks: 15, description: "Novelty of approach compared to existing legacy systems." },
-  { category: "Technical Implementation", maxMarks: 20, description: "Code quality, architecture design, and robustness of implementation." },
-  { category: "Feasibility & Practicality", maxMarks: 15, description: "Viability of real-world deployment and operational cost." },
-  { category: "UI/UX & Accessibility", maxMarks: 10, description: "Intuitive interface, accessibility standards, and clean experience." },
-  { category: "Scalability & Performance", maxMarks: 15, description: "Capability to handle high data throughput and concurrent load." },
-  { category: "Presentation & Demo", maxMarks: 10, description: "Clarity of demonstration, documentation, and live demo reliability." },
+  { category: "Problem Understanding & Architecture", maxMarks: 20, description: "Depth of solution comprehension and system design." },
+  { category: "Technical Implementation & Code Quality", maxMarks: 30, description: "Quality, completeness, and robustness of implementation." },
+  { category: "Innovation & Practical Impact", maxMarks: 25, description: "Novelty of approach and real-world utility." },
+  { category: "UI/UX & Deliverable Presentation", maxMarks: 25, description: "Usability, documentation, and live demo execution." },
 ];
 
 // Helper: Slugify title
@@ -156,14 +169,16 @@ export function generateSlug(title: string): string {
   return `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-${Date.now().toString().slice(-4)}`;
 }
 
-// 1. Get Published Problem Statements for Students
+// 1. Get Published & Released Problem Statements for Students
 export async function getPublishedProblemStatements(filters?: {
+  hackathonId?: string;
   domain?: string;
   difficulty?: string;
   search?: string;
 }): Promise<ProblemStatement[]> {
   try {
     const params = new URLSearchParams();
+    if (filters?.hackathonId) params.set("hackathonId", filters.hackathonId);
     if (filters?.domain && filters.domain !== "All") params.set("domain", filters.domain);
     if (filters?.difficulty && filters.difficulty !== "All") params.set("difficulty", filters.difficulty);
     if (filters?.search && filters.search.trim()) params.set("search", filters.search.trim());
@@ -177,15 +192,26 @@ export async function getPublishedProblemStatements(filters?: {
     console.warn("API fetch problem statements notice:", err);
   }
 
-  // Fallback to client Firestore query for published problem statements
+  // Fallback to client Firestore query for published & released problem statements
   try {
     const colRef = collection(db, "problemStatements");
-    const q = query(colRef, where("status", "==", "PUBLISHED"), orderBy("createdAt", "desc"));
+    let q = query(colRef, where("status", "==", "PUBLISHED"));
+    if (filters?.hackathonId) {
+      q = query(colRef, where("hackathonId", "==", filters.hackathonId), where("status", "==", "PUBLISHED"));
+    }
     const snap = await getDocs(q);
+    const now = Date.now();
     const list: ProblemStatement[] = [];
     snap.forEach((d) => {
-      list.push({ id: d.id, ...(d.data() as ProblemStatement) });
+      const data = d.data() as ProblemStatement;
+      // Filter out unreleased scheduled problems on client if present
+      if (data.scheduledReleaseAt && new Date(data.scheduledReleaseAt).getTime() > now) {
+        return;
+      }
+      list.push({ id: d.id, ...data });
     });
+    // Sort by displayOrder ascending, then createdAt descending
+    list.sort((a, b) => (a.displayOrder || 99) - (b.displayOrder || 99));
     return list;
   } catch (err) {
     console.error("Error fetching published problem statements:", err);
@@ -193,7 +219,47 @@ export async function getPublishedProblemStatements(filters?: {
   }
 }
 
-// 2. Get Problem Statement by ID or Slug
+// 2. Real-Time Listener for Student Hackathon Problem Statements
+export function subscribeToHackathonProblemStatements(
+  hackathonId: string,
+  onUpdate: (problems: ProblemStatement[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  try {
+    const colRef = collection(db, "problemStatements");
+    const q = query(
+      colRef,
+      where("hackathonId", "==", hackathonId),
+      where("status", "==", "PUBLISHED")
+    );
+
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const now = Date.now();
+        const list: ProblemStatement[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as ProblemStatement;
+          if (data.scheduledReleaseAt && new Date(data.scheduledReleaseAt).getTime() > now) {
+            return;
+          }
+          list.push({ id: docSnap.id, ...data });
+        });
+        list.sort((a, b) => (a.displayOrder || 99) - (b.displayOrder || 99));
+        onUpdate(list);
+      },
+      (err) => {
+        console.warn("Real-time problem statement sync notice:", err);
+        if (onError) onError(err);
+      }
+    );
+  } catch (err: any) {
+    console.warn("Failed to attach onSnapshot listener:", err);
+    return () => {};
+  }
+}
+
+// 3. Get Single Problem Statement by ID or Slug
 export async function getProblemStatementById(idOrSlug: string): Promise<ProblemStatement | null> {
   try {
     const res = await fetch(`/api/problem-statements/${encodeURIComponent(idOrSlug)}`);
@@ -225,11 +291,18 @@ export async function getProblemStatementById(idOrSlug: string): Promise<Problem
   }
 }
 
-// 3. Admin: Get All Problem Statements (Drafts, Published, etc.)
-export async function getAllProblemStatementsAdmin(statusFilter?: string, token?: string): Promise<ProblemStatement[]> {
+// 4. Admin: Get All Problem Statements (Drafts, Published, Scheduled, etc.)
+export async function getAllProblemStatementsAdmin(
+  statusFilter?: string, 
+  hackathonId?: string,
+  token?: string
+): Promise<ProblemStatement[]> {
   const params = new URLSearchParams();
   if (statusFilter && statusFilter !== "ALL") {
     params.set("status", statusFilter);
+  }
+  if (hackathonId && hackathonId !== "ALL") {
+    params.set("hackathonId", hackathonId);
   }
   const headers: Record<string, string> = {};
   if (token) {
@@ -246,7 +319,7 @@ export async function getAllProblemStatementsAdmin(statusFilter?: string, token?
   throw new Error(errData.error || `Server responded with status ${res.status}`);
 }
 
-// 4. Save Problem Statement (Create / Update)
+// 5. Save Problem Statement (Create / Update / Publish / Schedule)
 export async function saveProblemStatement(
   data: Partial<ProblemStatement>,
   adminUid: string,
@@ -286,21 +359,29 @@ export async function saveProblemStatement(
   }
 }
 
-// 5. Update Status (Publish, Archive, etc.)
+// 6. Update Status (Publish, Schedule, Draft, Archive)
 export async function updateProblemStatus(
   id: string, 
-  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "CLOSED" | "ARCHIVED",
+  status: "DRAFT" | "SCHEDULED" | "PUBLISHED" | "ARCHIVED" | "PENDING_REVIEW" | "CLOSED",
   adminUid: string,
-  token?: string
+  token?: string,
+  scheduledReleaseAt?: string | null
 ): Promise<boolean> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
+    const payload: any = { status };
+    if (status === "SCHEDULED" && scheduledReleaseAt) {
+      payload.scheduledReleaseAt = scheduledReleaseAt;
+    } else if (status === "PUBLISHED") {
+      payload.publishedAt = new Date().toISOString();
+    }
+
     const res = await fetch(`/api/problem-statements/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers,
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(payload),
     });
     if (res.ok) {
       const resData = await res.json().catch(() => ({}));
@@ -313,7 +394,7 @@ export async function updateProblemStatus(
   }
 }
 
-// 6. Delete Problem Statement
+// 7. Delete Problem Statement
 export async function deleteProblemStatement(id: string, adminUid: string, token?: string): Promise<boolean> {
   try {
     const headers: Record<string, string> = {};
@@ -333,4 +414,3 @@ export async function deleteProblemStatement(id: string, adminUid: string, token
     return false;
   }
 }
-

@@ -11,9 +11,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(req);
-    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
-    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
     const { searchParams } = new URL(req.url);
+    const projectId = searchParams.get("projectId");
+    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null, projectId);
+    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
     const userId = session?.userId;
 
     if (!userId) {

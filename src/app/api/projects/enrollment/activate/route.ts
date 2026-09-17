@@ -6,9 +6,6 @@ import { activateProjectServer } from "@/lib/project-activation-server";
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(req);
-    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
-    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
-
     const body = await req.json();
     const { 
       studentId: _studentId, 
@@ -22,6 +19,9 @@ export async function POST(req: NextRequest) {
       duration, 
       isNextProjectActivation 
     } = body;
+
+    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null, projectId);
+    if (!access.hasAccess) return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
 
     if (!session?.userId || !projectId || !duration) {
       return NextResponse.json(

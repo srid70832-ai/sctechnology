@@ -121,6 +121,8 @@ export default function MyCertificatesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState<"CERTIFICATE" | "OFFER_LETTER">("CERTIFICATE");
 
+  const [enrollments, setEnrollments] = useState<any[]>([]);
+
   const fetchCertificates = async () => {
     try {
       const res = await fetch("/api/certificates");
@@ -135,16 +137,35 @@ export default function MyCertificatesPage() {
     }
   };
 
+  const fetchEnrollments = async () => {
+    try {
+      const res = await fetch("/api/projects/enrollment/history");
+      if (res.ok) {
+        const data = await res.json();
+        setEnrollments(data.history || []);
+      }
+    } catch (err) {
+      console.error("Error fetching enrollments:", err);
+    }
+  };
+
   useEffect(() => {
     fetchCertificates();
+    fetchEnrollments();
   }, []);
 
-  const handleClaimCertificate = async (milestone: AvailableMilestone) => {
+  const handleGenerateProjectCertificate = async (enr: any, promotionUrl?: string) => {
     if (!user) {
       alert("Please log in to claim your certificate.");
       return;
     }
-    setClaimingId(milestone.id);
+
+    if (enr.certificatePromotionRequired && !enr.promotionUrl && !promotionUrl) {
+      setPromotionModalEnr(enr);
+      return;
+    }
+
+    setClaimingId(enr.id || enr.projectId);
     setClaimSuccessMsg(null);
 
     try {
@@ -152,18 +173,13 @@ export default function MyCertificatesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type: milestone.type,
-          eventName: milestone.eventName,
-          roundNumber: milestone.roundNumber,
-          winnerPosition: milestone.winnerPosition,
-          internshipTitle: milestone.type === "INTERNSHIP" ? milestone.title : undefined,
-          companyName: "SC TECH",
-          projectName: milestone.type === "PROJECT" ? milestone.title : undefined,
-          projectDomain: milestone.domain,
-          technologies: milestone.technologies,
-          courseName: milestone.type === "COURSE" ? milestone.title : undefined,
-          courseProvider: "SC TECH Academy",
-          duration: milestone.duration,
+          certificateType: "PROJECT",
+          projectId: enr.projectId,
+          projectName: enr.projectTitle,
+          projectDomain: enr.projectCategory,
+          technologies: ["Next.js", "TypeScript", "Node.js", "Cloud Firestore"],
+          completionDate: formatDate(new Date()),
+          promotionUrl: promotionUrl || enr.promotionUrl,
         }),
       });
 
@@ -172,8 +188,11 @@ export default function MyCertificatesPage() {
         throw new Error(data.error || "Failed to generate certificate");
       }
 
-      setClaimSuccessMsg(`🎉 Milestone certificate "${milestone.title}" generated successfully!`);
+      setClaimSuccessMsg(`🎉 Official Certificate for "${enr.projectTitle}" generated successfully!`);
+      setPromotionModalEnr(null);
+      setPromotionUrlInput("");
       await fetchCertificates();
+      await fetchEnrollments();
       setSelectedCertIndex(0);
       setTimeout(() => setClaimSuccessMsg(null), 5000);
     } catch (err: any) {
@@ -182,6 +201,10 @@ export default function MyCertificatesPage() {
       setClaimingId(null);
     }
   };
+
+  const [selectedEnrollmentIndex, setSelectedEnrollmentIndex] = useState<number>(0);
+  const [promotionModalEnr, setPromotionModalEnr] = useState<any>(null);
+  const [promotionUrlInput, setPromotionUrlInput] = useState("");
 
   const filteredCerts = certificates.filter((c) => {
     if (filterType === "ALL") return true;
@@ -193,13 +216,13 @@ export default function MyCertificatesPage() {
     return true;
   });
 
-  const activeCert = filteredCerts[selectedCertIndex] || filteredCerts[0] || certificates[0];
+  const activeCert = certificates.length > 0 ? (filteredCerts[selectedCertIndex] || filteredCerts[0] || certificates[0] || null) : null;
 
   const activeCertData = activeCert ? {
     certificateType: (activeCert.metadata?.certificateType || activeCert.type || "INTERNSHIP") as CertificateType,
     studentName: activeCert.studentName || user?.name || "Verified Student",
-    certificateId: activeCert.certificateNo || "SC-CERT-2026-000789",
-    issueDate: activeCert.issueDate ? formatDate(activeCert.issueDate) : "09 September 2026",
+    certificateId: activeCert.certificateNo,
+    issueDate: activeCert.issueDate ? formatDate(activeCert.issueDate) : formatDate(new Date()),
     eventName: activeCert.eventName || activeCert.metadata?.eventName,
     roundNumber: activeCert.metadata?.roundNumber,
     winnerPosition: activeCert.metadata?.winnerPosition,
@@ -218,21 +241,26 @@ export default function MyCertificatesPage() {
     verificationCode: activeCert.verificationToken || activeCert.metadata?.verificationCode,
   } : null;
 
-  const currentRole = getRoleTemplate(selectedRole);
-  const activeOfferDocData: DocumentData = {
+  const selectedEnr = enrollments.length > 0 ? (enrollments[selectedEnrollmentIndex] || enrollments[0] || null) : null;
+
+  const activeOfferDocData: DocumentData | null = selectedEnr ? {
     documentType: "OFFER_LETTER",
-    roleId: selectedRole,
+    roleId: selectedEnr.projectId || "project",
     studentName: user?.name || "Verified Candidate",
     candidateId: user?.userId ? `SCT-STU-${user.userId.slice(0, 6).toUpperCase()}` : "SCT-STU-2026-089",
-    offerId: `SCT-OFFER-2026-${(user?.userId || "000123").slice(0, 6).toUpperCase()}`,
-    certificateId: activeCert?.certificateNo || "SCT-CERT-2026-000789",
-    issueDate: "09 September 2026",
-    startDate: "15 September 2026",
-    endDate: "15 December 2026",
-  };
+    offerId: `SCT-OFFER-2026-${(selectedEnr.id || "ENR").replace(/[^a-zA-Z0-9]/g, "").slice(0, 8).toUpperCase()}`,
+    certificateId: selectedEnr.certificateId || "PENDING_COMPLETION",
+    issueDate: selectedEnr.startDate ? formatDate(selectedEnr.startDate) : formatDate(new Date()),
+    startDate: selectedEnr.startDate ? formatDate(selectedEnr.startDate) : formatDate(new Date()),
+    endDate: selectedEnr.deadline ? formatDate(selectedEnr.deadline) : formatDate(new Date(Date.now() + 60 * 86400000)),
+    customStipend: selectedEnr.stipendAmount ? `Performance-Based / Up to ₹${selectedEnr.stipendAmount.toLocaleString()}` : "Performance-Based / Up to ₹5,000",
+    customDepartment: selectedEnr.projectCategory || "Engineering & Software Architecture",
+    customMentor: "SC TECH Technical Mentorship Board",
+    customWorkMode: "Remote",
+  } : null;
 
   const handleCopyPublicLink = (certNo: string) => {
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && certNo) {
       const url = `${window.location.origin}/verify/${certNo}`;
       navigator.clipboard.writeText(url);
       setCopiedLink(true);
@@ -463,195 +491,297 @@ export default function MyCertificatesPage() {
                 </div>
               )}
 
-              {/* Milestone Completion & Claiming Center */}
+              {/* Real-World Project Verification & Certificate Eligibility Center */}
               <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-2xl space-y-6 print:hidden">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-4">
                   <div>
                     <h3 className="text-lg font-black text-white flex items-center gap-2">
                       <Sparkles className="w-5 h-5 text-amber-400" />
-                      <span>Claim Eligible Milestone Certificates</span>
+                      <span>Real-World Project Completion & Certificate Eligibility</span>
                     </h3>
                     <p className="text-xs text-slate-400">
-                      Finished an internship track, hackathon round, or course? Claim your instant cryptographic credential below.
+                      Tamper-proof digital certificates are issued upon completing project tasks, submitting your repository, and passing official SC TECH evaluation.
                     </p>
                   </div>
+                  <Link
+                    href="/projects"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600/20 text-blue-300 border border-blue-500/30 text-xs font-bold hover:bg-blue-600 hover:text-white transition"
+                  >
+                    <span>Browse Projects</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Link>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {AVAILABLE_MILESTONES.map((m) => {
-                    const isClaiming = claimingId === m.id;
-                    const alreadyEarned = certificates.some(
-                      (c) => (c.eventName === m.eventName || c.metadata?.internshipTitle === m.title) &&
-                             (c.metadata?.certificateType === m.type || c.type === m.type)
-                    );
+                {enrollments.length === 0 ? (
+                  <div className="p-8 rounded-2xl bg-slate-950/60 border border-slate-800 text-center space-y-3">
+                    <Layers className="w-10 h-10 text-slate-600 mx-auto" />
+                    <h4 className="text-sm font-bold text-white">No Project Enrollments Yet</h4>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      Select a project from the catalog to unlock hands-on milestones, mentor evaluation, and industry-recognized certification.
+                    </p>
+                    <Link
+                      href="/projects"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold shadow-lg shadow-blue-600/20"
+                    >
+                      <span>Explore Real-World Projects</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {enrollments.map((enr) => {
+                      const isClaiming = claimingId === (enr.id || enr.projectId);
+                      const isDone = enr.projectStatus === "COMPLETED";
+                      const isEligible = isDone && (enr.evaluation?.certificateApproved === true || enr.evaluation?.status === "APPROVED");
+                      const isUnderReview = ["SUBMITTED", "EVALUATION_PENDING", "UNDER_REVIEW"].includes(enr.projectStatus);
+                      const isActive = enr.projectStatus === "ACTIVE";
 
-                    return (
-                      <div
-                        key={m.id}
-                        className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between space-y-4 hover:border-slate-700 transition"
-                      >
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-extrabold uppercase">
-                              {m.type}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-semibold">{m.domain}</span>
+                      const alreadyEarned = certificates.some(
+                        (c) => (c.metadata?.projectId === enr.projectId || c.eventName === enr.projectTitle || c.title?.includes(enr.projectTitle))
+                      );
+
+                      return (
+                        <div
+                          key={enr.id}
+                          className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col justify-between space-y-4 hover:border-slate-700 transition"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                                isDone
+                                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                                  : isUnderReview
+                                  ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                                  : "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                              }`}>
+                                {isDone ? "COMPLETED" : isUnderReview ? "UNDER REVIEW" : "IN PROGRESS"}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-semibold">{enr.projectCategory}</span>
+                            </div>
+
+                            <h4 className="text-xs font-bold text-white leading-tight">
+                              {enr.projectTitle}
+                            </h4>
+
+                            <p className="text-[11px] text-slate-400">
+                              Duration: {enr.durationMonths || 2} Month(s) • Enrolled: {formatDate(enr.startDate || enr.createdAt)}
+                            </p>
+
+                            {enr.evaluation?.score !== undefined && (
+                              <div className="text-[11px] text-indigo-400 font-bold">
+                                Evaluator Score: {enr.evaluation.score}/100
+                              </div>
+                            )}
                           </div>
 
-                          <h4 className="text-xs font-bold text-white leading-tight">
-                            {m.title}
-                          </h4>
-
-                          <p className="text-[11px] text-slate-400">
-                            {m.eventName}
-                          </p>
-
-                          {Array.isArray(m.technologies) && m.technologies.length > 0 && (
-                            <div className="flex flex-wrap gap-1 pt-1">
-                              {m.technologies.slice(0, 3).map((t, idx) => (
-                                <span key={idx} className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[9px] text-slate-300">
-                                  {t}
-                                </span>
-                              ))}
-                              {m.technologies.length > 3 && (
-                                <span className="px-1.5 py-0.5 text-[9px] text-slate-500">
-                                  +{m.technologies.length - 3}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          <div>
+                            {alreadyEarned ? (
+                              <div className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>Certificate in Wallet</span>
+                              </div>
+                            ) : isEligible ? (
+                              <button
+                                type="button"
+                                onClick={() => handleGenerateProjectCertificate(enr)}
+                                disabled={isClaiming}
+                                className="w-full py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                              >
+                                {isClaiming ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span>Issuing Credential...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Award className="w-4 h-4" />
+                                    <span>Generate Official Certificate</span>
+                                  </>
+                                )}
+                              </button>
+                            ) : isUnderReview ? (
+                              <div className="w-full py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5">
+                                <Clock className="w-4 h-4 animate-pulse" />
+                                <span>Pending Board Review</span>
+                              </div>
+                            ) : (
+                              <Link
+                                href={`/my-projects/${enr.projectSlug || enr.projectId}`}
+                                className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-700 transition"
+                              >
+                                <span>Continue Tasks</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </Link>
+                            )}
+                          </div>
                         </div>
-
-                        <div>
-                          {alreadyEarned ? (
-                            <div className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5">
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Earned in Wallet</span>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleClaimCertificate(m)}
-                              disabled={isClaiming}
-                              className="w-full py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition cursor-pointer"
-                            >
-                              {isClaiming ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                  <span>Generating Credential...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <PlusCircle className="w-4 h-4" />
-                                  <span>Claim Certificate</span>
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
             </div>
           ) : (
             /* OFFER LETTERS TAB */
             <div className="space-y-6">
-              {/* Role Track Selector Bar */}
-              <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3 print:hidden">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Select Internship Track for Official Offer Letter:</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setModalType("OFFER_LETTER");
-                      setModalOpen(true);
-                    }}
-                    className="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Sliders className="w-3.5 h-3.5" />
-                    <span>Customize Letter</span>
-                  </button>
+              {enrollments.length === 0 ? (
+                /* EMPTY STATE FOR UNPAID / NO ENROLLMENT */
+                <div className="p-10 rounded-3xl bg-slate-900/80 border border-slate-800 text-center space-y-4 max-w-2xl mx-auto">
+                  <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mx-auto">
+                    <FileText className="w-8 h-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-lg font-black text-white">No Internship Offer Letters Available</h3>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      Official internship offer letters are generated exclusively upon purchasing and enrolling in a verified Real-World Project track.
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <Link
+                      href="/projects"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold shadow-lg shadow-blue-600/25"
+                    >
+                      <span>Explore Real-World Projects</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </Link>
+                  </div>
                 </div>
+              ) : activeOfferDocData ? (
+                <div className="space-y-6">
+                  {/* Track Selector for Enrolled Projects */}
+                  <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3 print:hidden">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Your Enrolled Project Tracks ({enrollments.length}):</span>
+                      </span>
+                    </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  {ROLE_TEMPLATES.map((r) => {
-                    const isSelected = selectedRole === r.id;
-                    return (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {enrollments.map((enr, idx) => {
+                        const isSelected = selectedEnrollmentIndex === idx;
+                        return (
+                          <button
+                            key={enr.id || idx}
+                            type="button"
+                            onClick={() => setSelectedEnrollmentIndex(idx)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                              isSelected
+                                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
+                                : "bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/60"
+                            }`}
+                          >
+                            <span>{enr.projectTitle}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Offer Letter Action Bar */}
+                  <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
+                    <div>
+                      <h3 className="text-base font-black text-white">
+                        {selectedEnr?.projectTitle} — Official Offer Letter
+                      </h3>
+                      <p className="text-xs text-blue-400 font-semibold">
+                        Stipend: {activeOfferDocData.customStipend} • Duration: {selectedEnr?.durationMonths || 2} Months • Mode: Remote
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
                       <button
-                        key={r.id}
                         type="button"
-                        onClick={() => setSelectedRole(r.id)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                          isSelected
-                            ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
-                            : "bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/60"
-                        }`}
+                        onClick={() => {
+                          setModalType("OFFER_LETTER");
+                          setModalOpen(true);
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition border border-slate-700 cursor-pointer"
                       >
-                        <span>{r.roleTitle}</span>
+                        <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Fullscreen</span>
                       </button>
-                    );
-                  })}
+
+                      <button
+                        type="button"
+                        onClick={() => window.print()}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-600/25 flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Print / Save PDF</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Offer Letter Preview Canvas */}
+                  <div className="overflow-x-auto p-4 sm:p-8 bg-slate-950 rounded-3xl border border-slate-800 flex justify-center shadow-2xl">
+                    <OfficialOfferLetter data={activeOfferDocData} />
+                  </div>
                 </div>
-              </div>
-
-              {/* Offer Letter Action Bar */}
-              <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
-                <div>
-                  <h3 className="text-base font-black text-white">
-                    {currentRole.roleTitle} — Official Offer Letter
-                  </h3>
-                  <p className="text-xs text-blue-400 font-semibold">
-                    Stipend: {currentRole.defaultStipend} • Duration: 3 Months • Mode: {currentRole.workMode}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setModalType("OFFER_LETTER");
-                      setModalOpen(true);
-                    }}
-                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition border border-slate-700 cursor-pointer"
-                  >
-                    <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Fullscreen</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-600/25 flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>Print / Save PDF</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Offer Letter Preview Canvas */}
-              <div className="overflow-x-auto p-4 sm:p-8 bg-slate-950 rounded-3xl border border-slate-800 flex justify-center shadow-2xl">
-                <OfficialOfferLetter data={activeOfferDocData} />
-              </div>
+              ) : null}
             </div>
           )}
 
         </main>
       </div>
 
+      {/* Promotion Link Submission Modal */}
+      {promotionModalEnr && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 text-slate-100 shadow-2xl">
+            <div className="space-y-1">
+              <h3 className="text-base font-black text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>Certificate Promotion Requirement</span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                To issue your official certificate for <strong>{promotionModalEnr.projectTitle}</strong>, please share your project milestone on LinkedIn / Twitter and paste your public post URL below.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300">Public Post URL *</label>
+              <input
+                type="url"
+                required
+                placeholder="https://www.linkedin.com/posts/..."
+                value={promotionUrlInput}
+                onChange={(e) => setPromotionUrlInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setPromotionModalEnr(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!promotionUrlInput.trim()}
+                onClick={() => handleGenerateProjectCertificate(promotionModalEnr, promotionUrlInput.trim())}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold shadow-lg shadow-blue-600/25 disabled:opacity-50"
+              >
+                Submit & Issue Certificate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Document Fullscreen / Customizer Modal */}
-      <DocumentViewerModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        initialType={modalType}
-        initialData={{ roleId: selectedRole }}
-      />
+      {activeOfferDocData && (
+        <DocumentViewerModal
+          isOpen={modalOpen}
+          onClose={() => setModalOpen(false)}
+          initialType={modalType}
+          initialData={activeOfferDocData}
+        />
+      )}
     </div>
   );
 }
