@@ -104,6 +104,16 @@ export default function AdminPaymentsPage() {
             Real-time audit log of all student payments, dynamic QR scans, and plan subscriptions.
           </p>
         </div>
+
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin/payments/qr"
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-2 transition shadow-lg shadow-cyan-600/20"
+          >
+            <QrCode className="w-4 h-4" />
+            <span>Payment QR Settings</span>
+          </Link>
+        </div>
       </div>
 
       {/* Analytics Summary Cards */}

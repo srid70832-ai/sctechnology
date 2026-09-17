@@ -60,10 +60,45 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Plan ID or Hackathon ID required." }, { status: 400 });
     }
 
-    // 3. Generate QR and Order Reference
+    // 3. Generate QR and Order Reference with Admin-controlled settings
     const orderRef = `SC-${Date.now().toString().slice(-6)}`;
     const receiptNumber = generateReceiptNumber();
-    const upiString = generateUpiPayload(amount, orderRef, planName);
+
+    let customQrImageUrl: string | null = null;
+    let upiString = generateUpiPayload(amount, orderRef, planName);
+
+    try {
+      const { getAdminDb } = await import("@/lib/firebase-admin");
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        const paymentSettingsDoc = await adminDb.collection("siteSettings").doc("payment").get();
+        if (paymentSettingsDoc.exists) {
+          const s = paymentSettingsDoc.data()!;
+          if (s.isActive !== false) {
+            if (s.paymentQrImageUrl) {
+              customQrImageUrl = s.paymentQrImageUrl;
+            }
+            if (s.paymentUpiLink && typeof s.paymentUpiLink === "string" && s.paymentUpiLink.trim()) {
+              const baseUpi = s.paymentUpiLink.trim();
+              if (baseUpi.startsWith("upi://pay")) {
+                const url = new URL(baseUpi);
+                url.searchParams.set("am", amount.toFixed(2));
+                url.searchParams.set("cu", "INR");
+                url.searchParams.set("tr", orderRef);
+                url.searchParams.set("tn", `SC TECH ${planName}`);
+                upiString = url.toString();
+              } else if (baseUpi.includes("@")) {
+                const upiId = baseUpi;
+                upiString = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent("SC TECH")}&am=${amount.toFixed(2)}&cu=INR&tr=${orderRef}&tn=${encodeURIComponent(`SC TECH ${planName}`)}`;
+              }
+            }
+          }
+        }
+      }
+    } catch (settErr) {
+      console.warn("Payment settings resolution notice:", settErr);
+    }
+
     const qrDataUrl = await createQrDataUrl(upiString);
 
     const paymentPayload = {
@@ -125,6 +160,7 @@ export async function POST(req: Request) {
       orderId: orderRef,
       paymentReference: orderRef,
       qrDataUrl,
+      customQrImageUrl,
       upiString,
       amount,
       planName,

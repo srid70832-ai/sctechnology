@@ -5,6 +5,7 @@ import { Navbar } from "@/components/ui/Navbar";
 import { Footer } from "@/components/ui/Footer";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { CollegeLogos } from "@/components/landing/CollegeLogos";
+import { FutureCareerNetwork } from "@/components/landing/FutureCareerNetwork";
 import { PopularInternships } from "@/components/landing/PopularInternships";
 import { WhySCTech } from "@/components/landing/WhySCTech";
 import { ProjectsSection } from "@/components/landing/ProjectsSection";
@@ -276,6 +277,15 @@ export default async function HomePage() {
         />
 
         <CollegeLogos />
+
+        <FutureCareerNetwork
+          stats={{
+            students: studentsCount,
+            projects: projectsCount,
+            internships: internshipsCount,
+            hackathons: hackathonsCount,
+          }}
+        />
 
         <PopularInternships internships={formattedInternships} />
 

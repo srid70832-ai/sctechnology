@@ -41,6 +41,7 @@ const ALLOWED_MIME_TYPES: Record<StorageCategory, string[]> = {
     "image/png",
     "image/jpeg",
   ],
+  "payment-qr": ["image/png", "image/jpeg", "image/webp"],
 };
 
 const MAX_FILE_SIZES: Record<StorageCategory, number> = {
@@ -52,6 +53,7 @@ const MAX_FILE_SIZES: Record<StorageCategory, number> = {
   "hackathon-submission": 50 * 1024 * 1024, // 50MB
   "team-submission": 50 * 1024 * 1024, // 50MB
   "project-file": 50 * 1024 * 1024, // 50MB
+  "payment-qr": 5 * 1024 * 1024, // 5MB
 };
 
 export async function POST(req: Request) {

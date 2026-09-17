@@ -12,6 +12,8 @@ import { useToast } from "@/components/providers/ToastProvider";
 import { PlanData, getPlansFromFirestore, DEFAULT_PLANS, LimitedOfferConfig, getOfferFromFirestore, calculatePlanPrice, isOfferActive } from "@/lib/plans";
 import { OfferBanner } from "@/components/ui/OfferBanner";
 import { formatINR } from "@/lib/utils";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { 
   Sparkles, 
   Check, 
@@ -64,6 +66,7 @@ export default function PlansPage() {
     orderId: string;
     paymentReference: string;
     qrDataUrl: string;
+    customQrImageUrl?: string | null;
     upiString: string;
     amount: number;
     planName: string;
@@ -293,6 +296,26 @@ export default function PlansPage() {
       setQrLoading(false);
     }
   };
+
+  // Real-time synchronization: listen for admin updates to payment QR while modal is open
+  useEffect(() => {
+    if (!showQrModal) return;
+    try {
+      const unsub = onSnapshot(doc(db, "siteSettings", "payment"), (snap) => {
+        if (snap.exists()) {
+          const d = snap.data();
+          if (d.paymentQrImageUrl && d.isActive !== false) {
+            setQrData((prev: any) => prev ? { ...prev, customQrImageUrl: d.paymentQrImageUrl } : prev);
+          } else if (d.paymentQrImageUrl === null || d.isActive === false) {
+            setQrData((prev: any) => prev ? { ...prev, customQrImageUrl: null } : prev);
+          }
+        }
+      });
+      return () => unsub();
+    } catch {
+      // Non-blocking
+    }
+  }, [showQrModal]);
 
   // 4. Verify QR Payment Status
   const handleVerifyQrStatus = async () => {
@@ -929,18 +952,31 @@ export default function PlansPage() {
                   </div>
 
                   {/* SC TECH Branded QR Frame Container */}
-                  <div className="relative p-3 rounded-3xl bg-white border-4 border-cyan-400 shadow-2xl max-w-[280px] mx-auto">
-                    {qrData?.qrDataUrl ? (
-                      <img
-                        src={qrData.qrDataUrl}
-                        alt="SC TECH UPI Payment QR"
-                        className="w-full h-auto rounded-2xl block"
-                      />
-                    ) : (
-                      <div className="w-56 h-56 bg-slate-100 flex items-center justify-center text-slate-400 text-xs">
-                        QR Unavailable
-                      </div>
-                    )}
+                  <div className="relative p-3 rounded-3xl bg-white border-4 border-cyan-400 shadow-2xl max-w-[280px] mx-auto overflow-hidden">
+                    <motion.div
+                      key={qrData?.customQrImageUrl || qrData?.qrDataUrl || "qr-frame"}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      {qrData?.customQrImageUrl ? (
+                        <img
+                          src={qrData.customQrImageUrl}
+                          alt="SC TECH UPI Payment QR"
+                          className="w-full h-auto rounded-2xl block object-contain"
+                        />
+                      ) : qrData?.qrDataUrl ? (
+                        <img
+                          src={qrData.qrDataUrl}
+                          alt="SC TECH UPI Payment QR"
+                          className="w-full h-auto rounded-2xl block object-contain"
+                        />
+                      ) : (
+                        <div className="w-56 h-56 bg-slate-100 flex items-center justify-center text-slate-400 text-xs">
+                          QR Unavailable
+                        </div>
+                      )}
+                    </motion.div>
                   </div>
 
                   <div className="space-y-1 text-xs text-slate-400">

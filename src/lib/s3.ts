@@ -40,7 +40,8 @@ export type StorageCategory =
   | "user-resume"
   | "hackathon-submission"
   | "team-submission"
-  | "project-file";
+  | "project-file"
+  | "payment-qr";
 
 export interface KeyGenerationParams {
   category: StorageCategory;
@@ -92,6 +93,8 @@ export function generateS3ObjectKey(params: KeyGenerationParams): string {
       return `hackathons/${hackathonId || "general"}/teams/${teamId || "general"}/${uniqueName}`;
     case "project-file":
       return `projects/${projectId || "general"}/${userId || "anonymous"}/${uniqueName}`;
+    case "payment-qr":
+      return `payments/qr/${uniqueName}`;
     default:
       return `uploads/${uniqueName}`;
   }
