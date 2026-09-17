@@ -321,6 +321,16 @@ export default function AdminDashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
           
           <Link
+            href="/admin/featured-opportunities"
+            className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/40 hover:border-purple-400 transition text-center space-y-2 shadow-lg group"
+          >
+            <div className="w-8 h-8 rounded-xl bg-purple-600/20 text-purple-400 flex items-center justify-center mx-auto group-hover:scale-110 transition">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="text-xs font-bold text-purple-300">Featured Home</div>
+          </Link>
+
+          <Link
             href="/admin/students"
             className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-blue-500/40 transition text-center space-y-2 shadow-lg group"
           >

@@ -255,5 +255,16 @@ service cloud.firestore {
     match /adminAiGenerations/{genId} {
       allow read, write: if isAdmin();
     }
+
+    // Site Settings (Homepage Featured Opportunities, Platform Configurations)
+    match /siteSettings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

@@ -84,110 +84,98 @@ export default async function HomePage() {
     console.warn("Prisma query notice on serverless runtime:", err);
   }
 
-  // Attempt Firestore fetch for live hackathon data
-  if (!upcomingHackathon) {
-    try {
-      const { getAdminDb } = await import("@/lib/firebase-admin");
-      const adminDb = getAdminDb();
-      if (adminDb) {
+  // 1. Fetch live curated featured opportunities from Firestore siteSettings/homepage
+  try {
+    const { getAdminDb } = await import("@/lib/firebase-admin");
+    const adminDb = getAdminDb();
+    if (adminDb) {
+      const settingsDoc = await adminDb.collection("siteSettings").doc("homepage").get();
+      const settings = settingsDoc.exists ? settingsDoc.data() : null;
+
+      // Resolve Featured Hackathon
+      if (settings?.featuredHackathonId) {
+        const hDoc = await adminDb.collection("hackathons").doc(settings.featuredHackathonId).get();
+        if (hDoc.exists) {
+          const d = hDoc.data()!;
+          if (d.status === "PUBLISHED" || d.status === "ONGOING" || !d.status) {
+            upcomingHackathon = {
+              id: hDoc.id,
+              ...d,
+            };
+          }
+        }
+      }
+
+      // If no admin-selected hackathon or unpublished, fallback to latest published
+      if (!upcomingHackathon) {
         const snap = await adminDb.collection("hackathons").where("status", "in", ["PUBLISHED", "ONGOING"]).limit(1).get();
         if (!snap.empty) {
-          const docData = snap.docs[0].data();
           upcomingHackathon = {
             id: snap.docs[0].id,
-            ...docData,
+            ...snap.docs[0].data(),
           };
         }
       }
-    } catch (fsErr) {
-      console.warn("Firestore hackathon fetch on homepage notice:", fsErr);
+
+      // Resolve Featured Internships
+      const curatedInternships: any[] = [];
+      if (settings?.featuredInternshipId1) {
+        const iDoc1 = await adminDb.collection("internships").doc(settings.featuredInternshipId1).get();
+        if (iDoc1.exists && (iDoc1.data()?.status === "PUBLISHED" || !iDoc1.data()?.status)) {
+          curatedInternships.push({ id: iDoc1.id, ...iDoc1.data() });
+        }
+      }
+      if (settings?.featuredInternshipId2) {
+        const iDoc2 = await adminDb.collection("internships").doc(settings.featuredInternshipId2).get();
+        if (iDoc2.exists && (iDoc2.data()?.status === "PUBLISHED" || !iDoc2.data()?.status)) {
+          curatedInternships.push({ id: iDoc2.id, ...iDoc2.data() });
+        }
+      }
+
+      // If no admin curated internships or unpublished, fetch top published from Firestore
+      if (curatedInternships.length === 0) {
+        const iSnap = await adminDb.collection("internships").where("status", "==", "PUBLISHED").limit(2).get();
+        iSnap.forEach((doc) => {
+          curatedInternships.push({ id: doc.id, ...doc.data() });
+        });
+      }
+
+      if (curatedInternships.length > 0) {
+        internships = curatedInternships;
+      }
     }
+  } catch (fsErr) {
+    console.warn("Firestore featured homepage fetch notice:", fsErr);
   }
 
-  // Format internships with safe fallback
-  const formattedInternships = internships.length > 0 ? internships.map((i: any) => ({
+  // Format internships for PopularInternships component
+  const formattedInternships = internships.map((i: any) => ({
     id: i.id,
-    title: i.title,
-    role: i.role,
-    slug: i.slug,
-    companyName: i.company?.name || "Partner Company",
-    companyLogo: i.company?.logoUrl,
-    mode: i.mode,
-    duration: i.duration,
-    stipend: i.stipend,
-    location: i.location,
-  })) : [
-    {
-      id: "int-1",
-      title: "Full Stack Web Developer Internship",
-      role: "Full Stack Developer",
-      slug: "full-stack-web-developer-internship",
-      companyName: "TechCorp Labs",
-      companyLogo: "/images/companies/google.png",
-      mode: "Remote",
-      duration: "6 Weeks",
-      stipend: 12000,
-      location: "Bangalore / Remote",
-    },
-    {
-      id: "int-2",
-      title: "AI & Machine Learning Internship",
-      role: "AI Engineer Intern",
-      slug: "ai-machine-learning-internship",
-      companyName: "DataCore Systems",
-      companyLogo: "/images/companies/microsoft.png",
-      mode: "Remote",
-      duration: "8 Weeks",
-      stipend: 15000,
-      location: "Hyderabad / Remote",
-    },
-    {
-      id: "int-3",
-      title: "Cloud DevOps Engineering Internship",
-      role: "DevOps Engineer Intern",
-      slug: "cloud-devops-internship",
-      companyName: "CloudScale Inc",
-      companyLogo: "/images/companies/amazon.png",
-      mode: "Remote",
-      duration: "6 Weeks",
-      stipend: 14000,
-      location: "Chennai / Remote",
-    },
-    {
-      id: "int-4",
-      title: "Cybersecurity Analyst Internship",
-      role: "Security Analyst Intern",
-      slug: "cybersecurity-analyst-internship",
-      companyName: "SecureNet Defense",
-      companyLogo: "/images/companies/meta.png",
-      mode: "Remote",
-      duration: "6 Weeks",
-      stipend: 13000,
-      location: "Pune / Remote",
-    },
-  ];
+    title: i.title || "Internship Role",
+    role: i.role || i.title || "",
+    slug: i.slug || i.id,
+    companyName: i.companyName || i.company?.name || "SC TECH",
+    companyLogoUrl: i.companyLogoUrl || i.companyLogo || i.company?.logoUrl || null,
+    mode: i.mode || "Remote",
+    duration: i.duration || "6 Weeks",
+    stipend: i.stipend || (i.stipendAmount ? `₹${i.stipendAmount}` : "Stipend Provided"),
+    location: i.location || "Remote",
+    description: i.description || "",
+  }));
 
   const formattedHackathon = upcomingHackathon ? {
-    id: upcomingHackathon.id || "hack-national-2026",
-    title: upcomingHackathon.title || "SC TECH National Innovation Hackathon 2026",
-    slug: upcomingHackathon.slug || "sctech-national-innovation-hackathon-2026",
-    tagLine: upcomingHackathon.tagLine || "Build next-gen AI & full-stack solutions for real-world industry challenges",
-    entryFee: typeof upcomingHackathon.entryFee === "number" ? upcomingHackathon.entryFee : 35,
-    prizePool: typeof upcomingHackathon.prizePool === "number" ? upcomingHackathon.prizePool : 50000,
-    startDate: typeof upcomingHackathon.startDate === "string" ? upcomingHackathon.startDate : upcomingHackathon.startDate?.toISOString?.() || new Date(Date.now() + 86400000 * 7).toISOString(),
-    endDate: typeof upcomingHackathon.endDate === "string" ? upcomingHackathon.endDate : upcomingHackathon.endDate?.toISOString?.() || new Date(Date.now() + 86400000 * 9).toISOString(),
-    participantsCount: upcomingHackathon._count?.registrations || upcomingHackathon.participantsCount || 340,
-  } : {
-    id: "hack-national-2026",
-    title: "SC TECH National Innovation Hackathon 2026",
-    slug: "sctech-national-innovation-hackathon-2026",
-    tagLine: "Build next-gen AI & full-stack solutions for real-world industry challenges",
-    entryFee: 35,
-    prizePool: 50000,
-    startDate: new Date(Date.now() + 86400000 * 7).toISOString(),
-    endDate: new Date(Date.now() + 86400000 * 9).toISOString(),
-    participantsCount: 340,
-  };
+    id: upcomingHackathon.id,
+    title: upcomingHackathon.title || "SC TECH Hackathon",
+    slug: upcomingHackathon.slug || upcomingHackathon.id,
+    tagLine: upcomingHackathon.tagLine || upcomingHackathon.shortDescription || "Code. Innovate. Elevate.",
+    entryFee: Number(upcomingHackathon.entryFee ?? upcomingHackathon.registrationFee ?? 0),
+    prizePool: Number(upcomingHackathon.prizePool ?? 0),
+    startDate: typeof upcomingHackathon.startDate === "string" ? upcomingHackathon.startDate : upcomingHackathon.startDate?.toISOString?.() || upcomingHackathon.startDate,
+    endDate: typeof upcomingHackathon.endDate === "string" ? upcomingHackathon.endDate : upcomingHackathon.endDate?.toISOString?.() || upcomingHackathon.endDate,
+    mode: upcomingHackathon.mode || "Online",
+    participantsCount: upcomingHackathon._count?.registrations || upcomingHackathon.participantsCount || 0,
+    status: upcomingHackathon.status || "PUBLISHED",
+  } : null;
 
   const formattedProjects = projects.length > 0 ? projects.map((p: any) => {
     let features: string[] = [];
