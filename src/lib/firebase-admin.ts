@@ -20,11 +20,7 @@ function getAdminProjectId(): string | null {
 
 function getAdminStorageBucket(): string | null {
   const configuredBucket = process.env.FIREBASE_STORAGE_BUCKET?.trim();
-  if (!configuredBucket) {
-    console.error("[FIREBASE_ADMIN] Missing FIREBASE_STORAGE_BUCKET; configure the existing Firebase project bucket.");
-    return null;
-  }
-  return configuredBucket;
+  return configuredBucket || null;
 }
 
 function normalizePrivateKey(rawPrivateKey: string | undefined): string {
@@ -58,8 +54,8 @@ function getAdminApp(): App | null {
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();
     const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
-    if (!projectId || !storageBucket || !clientEmail || !privateKey) {
-      console.error(`[FIREBASE_ADMIN] Missing Admin SDK configuration for project ${REQUIRED_FIREBASE_PROJECT_ID}. Required variables: FIREBASE_PROJECT_ID, FIREBASE_STORAGE_BUCKET, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY.`);
+    if (!projectId || !clientEmail || !privateKey) {
+      console.error(`[FIREBASE_ADMIN] Missing Admin SDK configuration for project ${REQUIRED_FIREBASE_PROJECT_ID}. Required variables: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY.`);
       return null;
     }
 
@@ -73,7 +69,7 @@ function getAdminApp(): App | null {
         privateKey: normalizedPrivateKey,
       }),
       projectId,
-      storageBucket,
+      ...(storageBucket ? { storageBucket } : {}),
     });
   } catch (err) {
     console.error("[FIREBASE_ADMIN] Initialization failed:", err instanceof Error ? err.message : "Unknown error");

@@ -9,10 +9,9 @@ import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import { getStudentProfile, saveStudentProfile, cleanStringOrNull, removeUndefinedValues, StudentProfileData } from "@/lib/firestore";
-import { auth, db, storage } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { 
   User, 
   Phone, 
@@ -227,7 +226,7 @@ function ProfileContent() {
     setTechnicalSkills(technicalSkills.filter((s) => s !== skill));
   };
 
-  // Profile Photo Upload (Firebase Storage & Prisma Sync)
+  // Profile Photo Upload (AWS S3 & Prisma Sync)
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -253,55 +252,59 @@ function ProfileContent() {
 
     setUploadingPhoto(true);
     try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const storagePath = `avatars/${uid}/avatar-${Date.now()}.${ext}`;
-      const storageRef = ref(storage, storagePath);
-
-      const snapshot = await uploadBytes(storageRef, file, {
-        contentType: file.type || "image/jpeg",
-        customMetadata: { uploadedBy: uid },
+      const token = await firebaseUser?.getIdToken();
+      const res = await fetch("/api/storage/presigned-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          category: "user-profile",
+          fileName: file.name,
+          contentType: file.type || "image/jpeg",
+          fileSize: file.size,
+        }),
       });
 
-      const downloadUrl = await getDownloadURL(snapshot.ref);
+      const data = await res.json();
+      if (!res.ok || !data.uploadUrl) {
+        throw new Error(data.error || "Failed to get photo upload authorization.");
+      }
+
+      // Direct PUT to S3
+      const uploadRes = await fetch(data.uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type || "image/jpeg",
+        },
+        body: file,
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error("Failed to upload photo to S3 storage.");
+      }
+
+      const viewUrl = data.viewUrl || `/api/storage/download?key=${encodeURIComponent(data.objectKey)}`;
 
       // Save to Firestore students/{uid}
       await saveStudentProfile(uid, {
-        photoURL: downloadUrl,
+        photoURL: viewUrl,
       });
 
       // Sync to Prisma User.avatarUrl
       await fetch("/api/student/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avatarUrl: downloadUrl }),
+        body: JSON.stringify({ avatarUrl: viewUrl }),
       });
 
-      setPhotoURL(downloadUrl);
+      setPhotoURL(viewUrl);
       await refresh();
       success("✓ Profile photo updated successfully!");
     } catch (err: any) {
-      console.warn("Storage photo upload attempt:", err);
-      // Fallback to base64 Data URL
-      try {
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          const base64 = reader.result as string;
-          if (uid && base64) {
-            await saveStudentProfile(uid, { photoURL: base64 });
-            await fetch("/api/student/profile", {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ avatarUrl: base64 }),
-            });
-            setPhotoURL(base64);
-            await refresh();
-            success("✓ Profile photo updated!");
-          }
-        };
-        reader.readAsDataURL(file);
-      } catch (fallbackErr) {
-        error("Failed to upload profile photo. Please try again.");
-      }
+      console.warn("S3 photo upload attempt:", err);
+      error(err?.message || "Failed to upload profile photo. Please try again.");
     } finally {
       setUploadingPhoto(false);
       e.target.value = "";
@@ -336,7 +339,7 @@ function ProfileContent() {
     }
   };
 
-  // Direct Firebase Storage Resume Upload
+  // Direct AWS S3 Resume Upload
   const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -372,61 +375,82 @@ function ProfileContent() {
     const oldStoragePath = resumeStoragePath;
 
     try {
-      const sanitizedExt = ext.replace(".", "") || "pdf";
-      const storagePath = `resumes/${firebaseUser.uid}/resume-${Date.now()}.${sanitizedExt}`;
-      const storageRef = ref(storage, storagePath);
-
-      // Upload directly to Firebase Storage with authenticated user UID
-      const snapshot = await uploadBytes(storageRef, file, {
-        contentType: file.type || "application/pdf",
-        customMetadata: {
-          originalName: file.name,
-          uploadedBy: firebaseUser.uid,
+      const token = await firebaseUser?.getIdToken();
+      const res = await fetch("/api/storage/presigned-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        body: JSON.stringify({
+          category: "user-resume",
+          fileName: file.name,
+          contentType: file.type || "application/pdf",
+          fileSize: file.size,
+        }),
       });
 
-      const downloadUrl = await getDownloadURL(snapshot.ref);
+      const data = await res.json();
+      if (!res.ok || !data.uploadUrl) {
+        throw new Error(data.error || "Failed to get resume upload authorization.");
+      }
+
+      // Upload directly to AWS S3 presigned PUT URL
+      const uploadRes = await fetch(data.uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type || "application/pdf",
+        },
+        body: file,
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error("Failed to upload resume to S3 storage.");
+      }
+
+      const viewUrl = data.viewUrl || `/api/storage/download?key=${encodeURIComponent(data.objectKey)}`;
 
       // Save metadata directly to Firestore students/{uid}
       await saveStudentProfile(firebaseUser.uid, {
-        resumeUrl: downloadUrl,
-        resumeStoragePath: storagePath,
+        resumeUrl: viewUrl,
+        resumeStoragePath: data.objectKey,
         resumeFileName: file.name,
         resumeUploadedAt: new Date().toISOString(),
+        storageProvider: "aws-s3",
       });
 
-      setResumeUrl(downloadUrl);
+      setResumeUrl(viewUrl);
       setResumeFileName(file.name);
-      setResumeStoragePath(storagePath);
+      setResumeStoragePath(data.objectKey);
       await refresh();
 
-      success("✓ Resume uploaded successfully.");
+      success("✓ Resume uploaded successfully to AWS S3.");
 
-      // Clean up previous storage file if replacing
-      if (oldStoragePath && oldStoragePath !== storagePath) {
+      // Clean up previous S3 file if replacing
+      if (oldStoragePath && oldStoragePath !== data.objectKey && oldStoragePath.startsWith("users/")) {
         try {
-          const oldRef = ref(storage, oldStoragePath);
-          await deleteObject(oldRef);
+          await fetch("/api/storage/delete", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ objectKey: oldStoragePath }),
+          });
         } catch (cleanupErr) {
-          console.warn("Previous storage resume cleanup:", cleanupErr);
+          console.warn("Previous S3 resume cleanup:", cleanupErr);
         }
       }
     } catch (err: any) {
-      console.error("Firebase Storage resume upload error:", err);
-      if (err?.code === "storage/unauthorized") {
-        error("Your account does not have permission to upload files to storage.");
-      } else if (err?.code === "storage/canceled") {
-        error("Resume upload was cancelled.");
-      } else {
-        error("Resume upload failed. Please try again.");
-      }
+      console.error("AWS S3 resume upload error:", err);
+      error(err?.message || "Resume upload failed. Please try again.");
     } finally {
       setUploadingResume(false);
       e.target.value = "";
     }
   };
 
-  // Remove Resume from Firebase Storage and Firestore
+  // Remove Resume from S3 and Firestore
   const handleRemoveResume = async () => {
     if (!firebaseUser?.uid) return;
     const currentPath = resumeStoragePath;
@@ -445,13 +469,20 @@ function ProfileContent() {
       setResumeStoragePath("");
       await refresh();
 
-      // Delete binary file from Firebase Storage
-      if (currentPath) {
+      // Delete binary file from S3 if it's an S3 key
+      if (currentPath && currentPath.startsWith("users/")) {
         try {
-          const fileRef = ref(storage, currentPath);
-          await deleteObject(fileRef);
+          const token = await firebaseUser?.getIdToken();
+          await fetch("/api/storage/delete", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ objectKey: currentPath }),
+          });
         } catch (delErr) {
-          console.warn("Storage delete:", delErr);
+          console.warn("S3 delete notice:", delErr);
         }
       }
 

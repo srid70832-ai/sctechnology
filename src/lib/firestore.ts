@@ -70,6 +70,8 @@ export interface StudentProfileData {
   resumeFileName?: string | null;
   resumeStoragePath?: string | null;
   resumeUploadedAt?: any;
+  storageProvider?: string | null;
+  storageMetadata?: any;
   bio?: string;
   profileCompleted?: boolean;
   onboardingCompleted?: boolean;

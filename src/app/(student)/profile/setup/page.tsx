@@ -7,8 +7,6 @@ import Link from "next/link";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import { saveStudentProfile } from "@/lib/firestore";
-import { storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { User, Phone, GraduationCap, Code2, Github, Linkedin, FileText, ArrowRight, Loader2, UploadCloud, CheckCircle2, ExternalLink } from "lucide-react";
 
 export default function ProfileSetupPage() {
@@ -57,22 +55,47 @@ export default function ProfileSetupPage() {
 
     setUploadingResume(true);
     try {
-      const sanitizedExt = ext.replace(".", "") || "pdf";
-      const storagePath = `resumes/${uid}/resume-${Date.now()}.${sanitizedExt}`;
-      const storageRef = ref(storage, storagePath);
-
-      const snapshot = await uploadBytes(storageRef, file, {
-        contentType: file.type || "application/pdf",
+      const token = await firebaseUser?.getIdToken();
+      const res = await fetch("/api/storage/presigned-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          category: "user-resume",
+          fileName: file.name,
+          contentType: file.type || "application/pdf",
+          fileSize: file.size,
+        }),
       });
 
-      const downloadUrl = await getDownloadURL(snapshot.ref);
-      setResumeUrl(downloadUrl);
+      const data = await res.json();
+      if (!res.ok || !data.uploadUrl) {
+        throw new Error(data.error || "Failed to get upload authorization.");
+      }
+
+      // Direct PUT upload to S3 presigned URL
+      const uploadRes = await fetch(data.uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type || "application/pdf",
+        },
+        body: file,
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error("Failed to upload resume to S3 storage.");
+      }
+
+      const fileUrl = data.viewUrl || `/api/storage/download?key=${encodeURIComponent(data.objectKey)}`;
+      setResumeUrl(fileUrl);
       setResumeFileName(file.name);
-      setResumeStoragePath(storagePath);
-      success("✓ Resume uploaded successfully.");
-    } catch (err) {
-      console.error("Setup resume upload error:", err);
-      error("Failed to upload resume. Please try again.");
+      setResumeStoragePath(data.objectKey);
+      success("✓ Resume uploaded successfully to AWS S3.");
+    } catch (err: any) {
+      console.error("Setup resume S3 upload error:", err);
+      error(err?.message || "Failed to upload resume. Please try again.");
     } finally {
       setUploadingResume(false);
       e.target.value = "";
