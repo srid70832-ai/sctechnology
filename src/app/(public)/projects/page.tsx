@@ -51,31 +51,19 @@ export default function ProjectsListPage() {
   ];
 
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-      setLoading(false);
-      window.location.href = "/login?redirect=/projects";
-      return;
-    }
-
     fetch("/api/projects")
       .then(async (response) => {
-        if (response.status === 401) {
-          window.location.href = "/login?redirect=/projects";
-          return;
-        }
-        if (response.status === 403) {
-          setAccessState("upgrade");
-          return;
-        }
         if (!response.ok) throw new Error("Failed to load projects");
         const data = await response.json();
         setProjects(data.projects || []);
         setAccessState("allowed");
       })
-      .catch(() => setAccessState("upgrade"))
+      .catch((err) => {
+        console.error("Error loading projects:", err);
+        setAccessState("allowed");
+      })
       .finally(() => setLoading(false));
-  }, [user, authLoading]);
+  }, []);
 
   const filteredProjects = projects.filter((p) => {
     if (categoryFilter !== "All") {
@@ -100,22 +88,10 @@ export default function ProjectsListPage() {
   });
 
   if (loading) {
-    return <div className="min-h-screen bg-[#070B14] text-slate-100 flex items-center justify-center">Loading project access...</div>;
-  }
-
-  if (accessState === "upgrade") {
     return (
-      <div className="min-h-screen flex flex-col bg-[#070B14] text-slate-100">
-        <Navbar />
-        <main className="flex-1 max-w-3xl mx-auto px-6 py-24 text-center">
-          <Lock className="w-12 h-12 text-blue-400 mx-auto mb-5" />
-          <h1 className="text-3xl font-black text-white">Real-World Projects</h1>
-          <p className="mt-4 text-slate-300">Real-World Projects are available with Plus, Pro or Career plans.</p>
-          <Link href="/plans" className="mt-8 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-500">
-            Upgrade to Plus – ₹399/month <ArrowRight className="w-4 h-4" />
-          </Link>
-        </main>
-        <Footer />
+      <div className="min-h-screen bg-[#070B14] text-slate-100 flex items-center justify-center gap-3">
+        <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+        <span>Loading real-world projects...</span>
       </div>
     );
   }
@@ -319,23 +295,42 @@ export default function ProjectsListPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
             {filteredProjects.map((p, idx) => {
               const isFeatured = idx < 2 || p.difficulty === "ADVANCED";
+              const isFree =
+                String(p.accessType || "").toUpperCase() === "FREE" ||
+                String((p as any).accessLevel || "").toUpperCase() === "FREE" ||
+                (p as any).isFree === true ||
+                p.isPremium === false;
 
               return (
                 <div
                   key={p.id}
-                  className="p-5 rounded-3xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between shadow-xl space-y-4 group relative"
+                  className={`p-5 rounded-3xl bg-slate-900/90 border transition flex flex-col justify-between shadow-xl space-y-4 group relative ${
+                    isFree ? "border-emerald-500/30 hover:border-emerald-500/60" : "border-slate-800 hover:border-blue-500/50"
+                  }`}
                 >
                   {/* Card Header & Thumbnail */}
                   <div className="space-y-3">
                     <div className="relative w-full h-36 rounded-2xl bg-gradient-to-tr from-blue-950 via-slate-900 to-indigo-950 border border-slate-800 overflow-hidden flex items-center justify-center">
                       <div className="absolute inset-0 bg-blue-500/10 opacity-50 group-hover:opacity-100 transition" />
-                      <FolderGit2 className="w-12 h-12 text-blue-400/80 group-hover:scale-110 transition" />
+                      <FolderGit2 className={`w-12 h-12 group-hover:scale-110 transition ${isFree ? "text-emerald-400/80" : "text-blue-400/80"}`} />
                       
-                      {isFeatured && (
-                        <span className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black tracking-wider uppercase shadow-md">
-                          Featured
-                        </span>
-                      )}
+                      <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                        {isFree ? (
+                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black tracking-wider uppercase shadow-md flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5" /> FREE
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full bg-indigo-600/90 text-white text-[9px] font-black tracking-wider uppercase shadow-md flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5" /> PRO
+                          </span>
+                        )}
+
+                        {isFeatured && (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black tracking-wider uppercase shadow-md">
+                            Featured
+                          </span>
+                        )}
+                      </div>
 
                       <span className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded-md bg-slate-950/80 text-[10px] text-slate-300 font-mono">
                         {p.difficulty}
@@ -376,7 +371,7 @@ export default function ProjectsListPage() {
                     })()}
                   </div>
 
-                  {/* Card Footer: 8 Tasks | Duration | Arrow Link */}
+                  {/* Card Footer: 8 Tasks | Duration | Action Link */}
                   <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
                     <div className="flex items-center gap-2">
                       <span className="flex items-center gap-1 text-cyan-400 font-semibold">
@@ -389,9 +384,14 @@ export default function ProjectsListPage() {
 
                     <Link
                       href={`/projects/${p.slug || p.id}`}
-                      className="w-8 h-8 rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center transition shadow-md shadow-blue-600/30"
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition shadow-md ${
+                        isFree
+                          ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30"
+                          : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/30"
+                      }`}
                     >
-                      <ArrowRight className="w-4 h-4" />
+                      <span>{isFree ? "Start Free" : "Explore"}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
                 </div>

@@ -41,6 +41,8 @@ export interface ProjectItem {
   submissionMethod: "WEBSITE" | "GOOGLE_FORM";
   googleFormUrl?: string | null;
   status: "DRAFT" | "PUBLISHED" | "CLOSED" | "ARCHIVED";
+  accessType?: "FREE" | "PRO";
+  accessLevel?: "FREE" | "PRO" | "PREMIUM_399" | "ALL_PLANS";
   createdAt?: any;
   updatedAt?: any;
   createdBy?: string;

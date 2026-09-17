@@ -14,17 +14,32 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     }
 
     const session = await getServerSession(req);
-    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
-    if (!access.hasAccess) {
-      return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
-    }
+    const access = await hasRealWorldProjectsAccess(
+      session ? { uid: session.userId, role: session.role } : null,
+      params.id
+    );
+
+    const isFree =
+      access.reason === "FREE_PROJECT" ||
+      String(project.accessType || "").toUpperCase() === "FREE" ||
+      String(project.accessLevel || "").toUpperCase() === "FREE" ||
+      project.isPremium === false;
+
+    const hasAccess = access.hasAccess || isFree;
 
     return NextResponse.json({
       success: true,
+      hasAccess,
+      accessType: isFree ? "FREE" : "PRO",
+      isFree,
       project: {
         ...project,
-        hasAccess: true,
+        accessType: isFree ? "FREE" : "PRO",
+        accessLevel: isFree ? "FREE" : "PREMIUM_399",
+        isFree,
+        hasAccess,
         userPlan: access.planName,
+        sourceCodeSnippet: hasAccess ? project.sourceCodeSnippet : "",
       },
     });
   } catch (error: any) {

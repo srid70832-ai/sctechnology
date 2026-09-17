@@ -42,7 +42,8 @@ export interface ProjectData {
   sourceCodeFileName: string;
   sourceCodeSnippet: string;
   isPremium: boolean;
-  accessLevel: "PREMIUM_399" | "FREE";
+  accessType?: "FREE" | "PRO";
+  accessLevel: "PREMIUM_399" | "FREE" | "PRO";
   price?: number;
   downloadCount: number;
   published: boolean;
@@ -1960,6 +1961,7 @@ export async function getWeatherData(lat: number, lng: number) {
   return res.json();
 }`,
     isPremium: false,
+    accessType: "FREE",
     accessLevel: "FREE",
     downloadCount: 780,
     published: true,
@@ -2034,6 +2036,7 @@ export async function generateRecipe(ingredients: string[], diet: string) {
   return JSON.parse(res.response.text());
 }`,
     isPremium: false,
+    accessType: "FREE",
     accessLevel: "FREE",
     downloadCount: 620,
     published: true,

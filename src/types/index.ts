@@ -79,4 +79,6 @@ export interface ProjectItem {
   demoUrl?: string | null;
   githubUrl?: string | null;
   downloadCount: number;
+  accessType?: "FREE" | "PRO";
+  accessLevel?: string;
 }

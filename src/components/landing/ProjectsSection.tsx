@@ -130,24 +130,36 @@ export const ProjectsSection: React.FC<ProjectsSectionProps> = ({ initialProject
                   </div>
 
                   <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                      p.difficulty === "Beginner"
-                        ? "bg-emerald-500/15 text-emerald-400"
-                      : p.difficulty === "Intermediate"
-                      ? "bg-blue-500/15 text-blue-400"
-                      : "bg-purple-500/15 text-purple-400"
-                  }`}>
-                    {p.difficulty}
-                  </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                        String(p.difficulty || "").toLowerCase() === "beginner"
+                          ? "bg-emerald-500/15 text-emerald-400"
+                        : String(p.difficulty || "").toLowerCase() === "intermediate"
+                        ? "bg-blue-500/15 text-blue-400"
+                        : "bg-purple-500/15 text-purple-400"
+                      }`}>
+                        {p.difficulty}
+                      </span>
 
-                  <Link
-                    href={`/projects/${p.slug || p.id}`}
-                    prefetch={true}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white text-xs font-semibold transition flex items-center gap-1 active:scale-95 duration-75 cursor-pointer"
-                  >
-                    <span>View</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </Link>
+                      {String(p.accessType || (p as any).accessLevel || "").toUpperCase() === "FREE" || (p as any).isFree ? (
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
+                          FREE
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase tracking-wider">
+                          PRO
+                        </span>
+                      )}
+                    </div>
+
+                    <Link
+                      href={`/projects/${p.slug || p.id}`}
+                      prefetch={true}
+                      className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white text-xs font-semibold transition flex items-center gap-1 active:scale-95 duration-75 cursor-pointer"
+                    >
+                      <span>View</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </Link>
                   </div>
                 </motion.div>
               );

@@ -118,6 +118,8 @@ export async function POST(req: Request) {
       submissionMethod,
       googleFormUrl,
       status,
+      accessType,
+      accessLevel,
     } = body;
 
     if (!title || !shortDescription || !githubRepoUrl) {
@@ -126,6 +128,11 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    const resolvedAccessType: "FREE" | "PRO" =
+      String(accessType || "").toUpperCase() === "FREE" || String(accessLevel || "").toUpperCase() === "FREE"
+        ? "FREE"
+        : "PRO";
 
     const projectSlug = slug || slugify(title);
     const projectId = id || `proj-${projectSlug}-${Date.now().toString().slice(-4)}`;
@@ -163,6 +170,9 @@ export async function POST(req: Request) {
       submissionMethod: submissionMethod === "GOOGLE_FORM" ? "GOOGLE_FORM" : "WEBSITE",
       googleFormUrl: googleFormUrl ? String(googleFormUrl).trim() : null,
       status: status || "PUBLISHED",
+      accessType: resolvedAccessType,
+      accessLevel: resolvedAccessType === "FREE" ? "FREE" : "PREMIUM_399",
+      isPremium: resolvedAccessType === "PRO",
       updatedAt: now,
       ...(isNew ? { createdAt: now, createdBy: (auth.user as any)?.email || "ADMIN" } : {}),
     };

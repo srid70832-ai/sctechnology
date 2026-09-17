@@ -51,31 +51,23 @@ export default function ProjectDetailPage() {
     if (!rawId) return;
     fetch(`/api/projects/${encodeURIComponent(rawId)}`)
       .then(async (response) => {
-        if (response.status === 401) {
-          router.push(`/login?redirect=/projects/${encodeURIComponent(rawId)}`);
-          return;
-        }
-        if (response.status === 403) {
-          setAccessDenied(true);
-          return;
-        }
         if (!response.ok) throw new Error("Project unavailable");
         const data = await response.json();
         setProject(data.project || null);
       })
       .catch(() => setAccessDenied(true));
-  }, [rawId, router]);
+  }, [rawId]);
 
-  if (accessDenied) {
+  if (accessDenied && !project) {
     return (
       <div className="min-h-screen flex flex-col bg-[#070B14] text-slate-100">
         <Navbar />
         <main className="flex-1 max-w-3xl mx-auto px-6 py-24 text-center">
           <Lock className="w-12 h-12 text-blue-400 mx-auto mb-5" />
-          <h1 className="text-3xl font-black text-white">Project access requires an eligible plan</h1>
-          <p className="mt-4 text-slate-300">Real-World Projects are available with Plus, Pro or Career plans.</p>
-          <Link href="/plans" className="mt-8 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-500">
-            Upgrade to Plus – ₹399/month <ArrowRight className="w-4 h-4" />
+          <h1 className="text-3xl font-black text-white">Project Not Found</h1>
+          <p className="mt-4 text-slate-300">The requested real-world project could not be found or is archived.</p>
+          <Link href="/projects" className="mt-8 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-500">
+            Back to Projects <ArrowRight className="w-4 h-4" />
           </Link>
         </main>
         <Footer />
@@ -145,10 +137,21 @@ export default function ProjectDetailPage() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-bold border border-blue-500/30">
                     {project.category}
                   </span>
+
+                  {String(project.accessType || (project as any).accessLevel || "").toUpperCase() === "FREE" || (project as any).isFree ? (
+                    <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black border border-emerald-500/30 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-emerald-400" /> FREE ACCESS
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-black border border-indigo-500/30 flex items-center gap-1">
+                      <Lock className="w-3 h-3 text-indigo-400" /> PRO PROJECT
+                    </span>
+                  )}
+
                   <span className="text-xs text-slate-400 font-mono">ID: {project.id}</span>
                 </div>
 
@@ -392,25 +395,48 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
 
-              {/* Blue Action CTA: "Activate Project" */}
-              <button
-                type="button"
-                onClick={() => setActivationModalOpen(true)}
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Zap className="w-4 h-4 text-cyan-200" />
-                <span>Activate Project</span>
-              </button>
+              {/* Dynamic Action CTA: "Activate Project" */}
+              {String(project.accessType || (project as any).accessLevel || "").toUpperCase() === "FREE" || (project as any).isFree ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setActivationModalOpen(true)}
+                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-500 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4 text-emerald-200" />
+                    <span>Activate Project (Free – ₹0)</span>
+                  </button>
 
-              {/* Sub-box: Next Project Activation Fee: ₹99 */}
-              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-1 text-center">
-                <div className="text-[11px] font-bold text-amber-300">
-                  🪙 Next Project Activation Fee: ₹99
-                </div>
-                <div className="text-[10px] text-amber-200/80">
-                  (For next project after completion)
-                </div>
-              </div>
+                  <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-1 text-center">
+                    <div className="text-[11px] font-bold text-emerald-300">
+                      ✨ Free Tier Project
+                    </div>
+                    <div className="text-[10px] text-emerald-200/80">
+                      Included free for all registered SC TECH students.
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setActivationModalOpen(true)}
+                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Zap className="w-4 h-4 text-cyan-200" />
+                    <span>Activate Project</span>
+                  </button>
+
+                  <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 space-y-1 text-center">
+                    <div className="text-[11px] font-bold text-indigo-300">
+                      🔒 SC TECH Pro Project
+                    </div>
+                    <div className="text-[10px] text-indigo-200/80">
+                      Requires Plus, Pro, Career plan or direct unlock.
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="text-center">
                 <a href="#faq" onClick={() => setActiveTab("FAQ")} className="text-xs text-slate-400 hover:text-white underline">

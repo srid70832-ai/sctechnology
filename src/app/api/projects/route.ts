@@ -8,10 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(req);
-    const access = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
-    if (!access.hasAccess) {
-      return NextResponse.json(projectAccessError(access), { status: access.reason === "UNAUTHENTICATED" ? 401 : 403 });
-    }
+    const userAccess = await hasRealWorldProjectsAccess(session ? { uid: session.userId, role: session.role } : null);
 
     const { searchParams } = new URL(req.url);
     const difficulty = searchParams.get("difficulty") || "";
@@ -19,7 +16,32 @@ export async function GET(req: Request) {
     const search = searchParams.get("search") || "";
     const sort = searchParams.get("sort") || "popular";
 
-    let projects = await getVerifiedProjectsFromFirestore();
+    let rawProjects = await getVerifiedProjectsFromFirestore();
+
+    // Map projects with normalized accessType
+    let projects = rawProjects.map((p) => {
+      const isFree =
+        String(p.accessType || "").toUpperCase() === "FREE" ||
+        String(p.accessLevel || "").toUpperCase() === "FREE" ||
+        p.isPremium === false;
+
+      const hasAccess = isFree || userAccess.hasAccess;
+
+      return {
+        ...p,
+        accessType: (isFree ? "FREE" : "PRO") as "FREE" | "PRO",
+        accessLevel: isFree ? "FREE" : "PREMIUM_399",
+        isFree,
+        hasAccess,
+        // If PRO and user does not have access, mask proprietary code snippet from list view
+        sourceCodeSnippet: hasAccess ? p.sourceCodeSnippet : undefined,
+      };
+    });
+
+    // Filter published only unless admin
+    if (session?.role !== "ADMIN" && session?.role !== "SUPER_ADMIN") {
+      projects = projects.filter((p) => p.published !== false && (p as any).status !== "DRAFT" && (p as any).status !== "ARCHIVED");
+    }
 
     // 1. Difficulty filter
     if (difficulty && difficulty !== "All") {
@@ -57,6 +79,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ 
       success: true, 
       count: projects.length, 
+      userHasProAccess: userAccess.hasAccess,
+      userPlan: userAccess.planName,
       projects 
     });
   } catch (error) {
