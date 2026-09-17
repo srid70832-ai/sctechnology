@@ -19,6 +19,7 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { ProjectData } from "@/lib/projects-data";
 import { ProjectDurationOption } from "@/lib/project-lifecycle-service";
 import { DEFAULT_PLANS, PlanData } from "@/lib/plans";
+import { DualPaymentModal } from "@/components/payments/DualPaymentModal";
 
 interface ProjectActivationModalProps {
   isOpen: boolean;
@@ -92,73 +93,46 @@ export function ProjectActivationModal({
     checkStatus();
   }, [isOpen, user, firebaseUser, router, project]);
 
-  const handleDirectProjectCheckout = async () => {
-    const currentUser = firebaseUser;
+  const [dualPaymentConfig, setDualPaymentConfig] = useState<{
+    isOpen: boolean;
+    productType: "PROJECT_PURCHASE" | "SUBSCRIPTION";
+    productId: string;
+    productTitle: string;
+    amount: number;
+    billingCycle?: "MONTHLY" | "YEARLY";
+    duration?: string;
+  } | null>(null);
+
+  const handleOpenDirectProjectPayment = () => {
+    const currentUser = firebaseUser || user;
     if (!currentUser || !project) {
       router.push("/login?redirect=/projects/" + (project?.slug || project?.id || ""));
       return;
     }
+    setDualPaymentConfig({
+      isOpen: true,
+      productType: "PROJECT_PURCHASE",
+      productId: project.id,
+      productTitle: `${project.title} — Real-World Project Unlock`,
+      amount: project.price || 299,
+      duration: selectedDuration,
+    });
+  };
 
-    setPaymentLoading(true);
-    try {
-      const token = await currentUser.getIdToken(true);
-      const orderResponse = await fetch("/api/payments/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ projectId: project.id, duration: selectedDuration }),
-      });
-      const order = await orderResponse.json();
-      if (!orderResponse.ok) throw new Error(order.error || "Unable to create project purchase order");
-      if (!(window as any).Razorpay) throw new Error("Razorpay Checkout is unavailable. Please try again.");
-
-      const razorpay = new (window as any).Razorpay({
-        key: order.keyId,
-        amount: order.amount,
-        currency: order.currency || "INR",
-        name: "SC TECH",
-        description: `${project.title} — Project Unlock`,
-        image: "/logo.png",
-        order_id: order.orderId,
-        prefill: { name: user?.name || currentUser.displayName || "", email: user?.email || currentUser.email || "" },
-        theme: { color: "#2563EB" },
-        handler: async (response: any) => {
-          try {
-            const verifyToken = await currentUser.getIdToken(true);
-            const verifyResponse = await fetch("/api/payments/verify", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${verifyToken}` },
-              body: JSON.stringify({
-                orderId: response.razorpay_order_id || order.orderId,
-                paymentId: response.razorpay_payment_id,
-                signature: response.razorpay_signature,
-                projectId: project.id,
-                duration: selectedDuration,
-              }),
-            });
-            const verified = await verifyResponse.json();
-            if (!verifyResponse.ok) throw new Error(verified.error || "Payment verification failed");
-            
-            alert(`🎉 Project "${project.title}" unlocked successfully! Opening Project Workspace...`);
-            onClose();
-            if (onActivated) onActivated();
-            router.push(`/my-projects/${project.slug || project.id}`);
-          } catch (err: any) {
-            setActiveProjectError(err.message || "Payment verification failed");
-          } finally {
-            setPaymentLoading(false);
-          }
-        },
-        modal: { ondismiss: () => setPaymentLoading(false) },
-      });
-      razorpay.on("payment.failed", (response: any) => {
-        setPaymentLoading(false);
-        setActiveProjectError(response.error?.description || "Payment was not completed.");
-      });
-      razorpay.open();
-    } catch (err: any) {
-      setPaymentLoading(false);
-      setActiveProjectError(err.message || "Unable to start project checkout");
+  const handleOpenSubscriptionPayment = () => {
+    const currentUser = firebaseUser || user;
+    if (!currentUser) {
+      router.push("/login?redirect=/projects/" + (project?.slug || project?.id || ""));
+      return;
     }
+    setDualPaymentConfig({
+      isOpen: true,
+      productType: "SUBSCRIPTION",
+      productId: selectedPlan.code,
+      productTitle: `${selectedPlan.name} Monthly Subscription`,
+      amount: selectedPlan.priceMonthly,
+      billingCycle: "MONTHLY",
+    });
   };
 
   if (!isOpen || !project) return null;
@@ -355,21 +329,11 @@ export function ProjectActivationModal({
 
               <button
                 type="button"
-                disabled={paymentLoading}
-                onClick={handleDirectProjectCheckout}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                onClick={handleOpenDirectProjectPayment}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer"
               >
-                {paymentLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Processing Payment...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    <span>Pay ₹{project.price || 299} & Unlock ONLY This Project 🔓</span>
-                  </>
-                )}
+                <Zap className="w-4 h-4" />
+                <span>Pay ₹{project.price || 299} & Unlock ONLY This Project 🔓</span>
               </button>
             </div>
 
@@ -387,8 +351,8 @@ export function ProjectActivationModal({
                   );
                 })}
               </div>
-              <button type="button" disabled={paymentLoading} onClick={handleSubscriptionCheckout} className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 disabled:opacity-50">
-                {paymentLoading ? "Opening checkout..." : `Subscribe to ${selectedPlan.name} – ₹${selectedPlan.priceMonthly}/month`}
+              <button type="button" onClick={handleOpenSubscriptionPayment} className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700">
+                Subscribe to {selectedPlan.name} – ₹{selectedPlan.priceMonthly}/month
               </button>
             </div>
           </div>
@@ -523,6 +487,29 @@ export function ProjectActivationModal({
         )}
 
       </div>
+
+      {dualPaymentConfig && (
+        <DualPaymentModal
+          isOpen={dualPaymentConfig.isOpen}
+          onClose={() => setDualPaymentConfig(null)}
+          productType={dualPaymentConfig.productType}
+          productId={dualPaymentConfig.productId}
+          productTitle={dualPaymentConfig.productTitle}
+          amount={dualPaymentConfig.amount}
+          billingCycle={dualPaymentConfig.billingCycle}
+          duration={dualPaymentConfig.duration}
+          onSuccess={() => {
+            setDualPaymentConfig(null);
+            onClose();
+            if (onActivated) onActivated();
+            if (dualPaymentConfig.productType === "PROJECT_PURCHASE") {
+              router.push(`/my-projects/${project.slug || project.id}`);
+            } else {
+              setSubscriptionRequired(false);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

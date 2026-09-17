@@ -86,6 +86,29 @@ export default function AdminPaymentsPage() {
     );
   });
 
+  const [actionLoading, setActionLoading] = useState<{ [id: string]: boolean }>({});
+
+  const handleApproveOrReject = async (paymentId: string, action: "APPROVE" | "REJECT") => {
+    if (!confirm(`Are you sure you want to ${action.toLowerCase()} this transaction?`)) return;
+    
+    setActionLoading((prev) => ({ ...prev, [paymentId]: true }));
+    try {
+      const res = await fetch("/api/admin/payments/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentId, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || `Failed to ${action.toLowerCase()} payment.`);
+      }
+    } catch {
+      alert("Network error processing request.");
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [paymentId]: false }));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0B0F19] text-slate-100 p-6 lg:p-10 space-y-8 max-w-7xl mx-auto">
       
@@ -101,7 +124,7 @@ export default function AdminPaymentsPage() {
             <span>Razorpay Payments & QR Settlement Ledger</span>
           </h1>
           <p className="text-xs text-slate-400">
-            Real-time audit log of all student payments, dynamic QR scans, and plan subscriptions.
+            Real-time audit log of student payments, dynamic UPI QR scans, manual UTR verifications, and least-privilege unlocks.
           </p>
         </div>
 
@@ -138,7 +161,7 @@ export default function AdminPaymentsPage() {
           <div className="text-2xl sm:text-3xl font-black text-white">
             {capturedPayments.length}
           </div>
-          <span className="text-[10px] text-blue-400 font-medium block">Active Subscriptions</span>
+          <span className="text-[10px] text-blue-400 font-medium block">Verified Access Granted</span>
         </div>
 
         <div className="p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-2">
@@ -149,18 +172,18 @@ export default function AdminPaymentsPage() {
           <div className="text-2xl sm:text-3xl font-black text-cyan-400">
             {qrPaymentsCount}
           </div>
-          <span className="text-[10px] text-slate-500 font-medium block">Dynamic QR Payments</span>
+          <span className="text-[10px] text-slate-500 font-medium block">Admin QR Payments</span>
         </div>
 
         <div className="p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400 font-semibold">
-            <span>Checkout Orders</span>
-            <CreditCard className="w-4 h-4 text-purple-400" />
+            <span>Pending / Review</span>
+            <Clock className="w-4 h-4 text-amber-400" />
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-purple-300">
-            {checkoutPaymentsCount}
+          <div className="text-2xl sm:text-3xl font-black text-amber-300">
+            {payments.filter((p) => p.status === "MANUAL_REVIEW" || p.status === "PENDING").length}
           </div>
-          <span className="text-[10px] text-slate-500 font-medium block">Razorpay Gateway Modal</span>
+          <span className="text-[10px] text-slate-500 font-medium block">Awaiting Verification</span>
         </div>
 
       </div>
@@ -169,7 +192,7 @@ export default function AdminPaymentsPage() {
       <div className="p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col md:flex-row gap-4 items-center justify-between">
         
         <div className="flex flex-wrap items-center gap-2 text-xs w-full md:w-auto">
-          {["ALL", "SUCCESS", "PENDING", "FAILED"].map((st) => (
+          {["ALL", "SUCCESS", "MANUAL_REVIEW", "PENDING", "FAILED"].map((st) => (
             <button
               key={st}
               onClick={() => setStatusFilter(st)}
@@ -179,7 +202,7 @@ export default function AdminPaymentsPage() {
                   : "bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200"
               }`}
             >
-              {st}
+              {st === "MANUAL_REVIEW" ? "Review Queue" : st}
             </button>
           ))}
 
@@ -200,7 +223,7 @@ export default function AdminPaymentsPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by student, email, receipt, or order ID..."
+            placeholder="Search student, UTR, receipt, order..."
             className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
           />
         </div>
@@ -217,7 +240,7 @@ export default function AdminPaymentsPage() {
         <div className="p-16 rounded-3xl bg-slate-900 border border-slate-800 text-center space-y-3">
           <CreditCard className="w-10 h-10 text-slate-600 mx-auto" />
           <h3 className="text-base font-bold text-slate-200">No payment records found</h3>
-          <p className="text-xs text-slate-500">Transactions processed in Razorpay TEST Mode or Dynamic QR will appear here.</p>
+          <p className="text-xs text-slate-500">Transactions processed in Razorpay or Dynamic QR will appear here.</p>
         </div>
       ) : (
         <div className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl overflow-x-auto">
@@ -225,63 +248,109 @@ export default function AdminPaymentsPage() {
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[10px] pb-3">
                 <th className="pb-3 font-semibold">Student Account</th>
-                <th className="pb-3 font-semibold">Plan / Target</th>
+                <th className="pb-3 font-semibold">Target Product</th>
                 <th className="pb-3 font-semibold">Method</th>
                 <th className="pb-3 font-semibold">Amount</th>
-                <th className="pb-3 font-semibold">Receipt / Order Ref</th>
+                <th className="pb-3 font-semibold">Receipt / UTR Ref</th>
                 <th className="pb-3 font-semibold">Status</th>
-                <th className="pb-3 font-semibold text-right">Receipt</th>
+                <th className="pb-3 font-semibold text-right">Actions / Receipt</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800 text-slate-200">
-              {filteredPayments.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-800/40 transition">
-                  <td className="py-4">
-                    <div className="font-bold text-white">{p.userName || "Student"}</div>
-                    <div className="text-[11px] text-slate-400 font-mono">{p.userEmail || "—"}</div>
-                  </td>
-                  <td className="py-4">
-                    <div className="font-semibold text-white">{p.planName || `${p.planId} Plan`}</div>
-                    <div className="text-[10px] text-slate-400">{p.billingCycle || "MONTHLY"}</div>
-                  </td>
-                  <td className="py-4">
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ${
-                      p.paymentMethod === "QR_UPI"
-                        ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
-                        : "bg-blue-600/20 text-blue-300 border border-blue-500/30"
-                    }`}>
-                      {p.paymentMethod === "QR_UPI" ? <QrCode className="w-3 h-3" /> : <CreditCard className="w-3 h-3" />}
-                      <span>{p.paymentMethod === "QR_UPI" ? "UPI QR" : "Checkout"}</span>
-                    </span>
-                  </td>
-                  <td className="py-4 font-bold text-emerald-400 text-sm">{formatINR(p.amount || 0)}</td>
-                  <td className="py-4 font-mono text-[11px] text-slate-400">
-                    <div className="text-white font-bold">{p.receiptNumber || "—"}</div>
-                    <div className="text-[10px] text-slate-500">{p.orderId || p.razorpayOrderId || "—"}</div>
-                  </td>
-                  <td className="py-4">
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                      p.status === "CAPTURED" || p.status === "SUCCESS"
-                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                        : p.status === "FAILED"
-                        ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                        : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                    }`}>
-                      {p.status === "CAPTURED" ? "SUCCESS ✓" : p.status}
-                    </span>
-                  </td>
-                  <td className="py-4 text-right">
-                    <Link
-                      href={`/receipts/${p.id}`}
-                      target="_blank"
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition inline-flex items-center gap-1 text-[11px] font-semibold"
-                    >
-                      <Printer className="w-3 h-3 text-blue-400" />
-                      <span>View</span>
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {filteredPayments.map((p) => {
+                const isReviewable = p.status === "MANUAL_REVIEW" || (p.status === "PENDING" && p.utrNumber);
+                const isLoading = actionLoading[p.id];
+
+                return (
+                  <tr key={p.id} className="hover:bg-slate-800/40 transition">
+                    <td className="py-4">
+                      <div className="font-bold text-white">{p.userName || "Student"}</div>
+                      <div className="text-[11px] text-slate-400 font-mono">{p.userEmail || "—"}</div>
+                    </td>
+                    <td className="py-4">
+                      <div className="font-semibold text-white">
+                        {p.productType === "PROJECT_PURCHASE"
+                          ? `Project: ${p.projectId || "Real-World Project"}`
+                          : p.productType === "HACKATHON_REGISTRATION"
+                          ? `Hackathon: ${p.hackathonId || "Hackathon Entry"}`
+                          : p.planName || `${p.planId || "PLUS"} Plan`}
+                      </div>
+                      <div className="text-[10px] text-cyan-400 font-medium uppercase">
+                        {p.productType || "SUBSCRIPTION"} {p.billingCycle ? `• ${p.billingCycle}` : ""}
+                      </div>
+                    </td>
+                    <td className="py-4">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ${
+                        p.paymentMethod === "QR_UPI"
+                          ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                          : "bg-blue-600/20 text-blue-300 border border-blue-500/30"
+                      }`}>
+                        {p.paymentMethod === "QR_UPI" ? <QrCode className="w-3 h-3" /> : <CreditCard className="w-3 h-3" />}
+                        <span>{p.paymentMethod === "QR_UPI" ? "UPI QR" : "Checkout"}</span>
+                      </span>
+                    </td>
+                    <td className="py-4 font-bold text-emerald-400 text-sm">{formatINR(p.amount || 0)}</td>
+                    <td className="py-4 font-mono text-[11px] text-slate-400">
+                      <div className="text-white font-bold">{p.receiptNumber || p.orderId || "—"}</div>
+                      {p.utrNumber ? (
+                        <div className="text-[10px] text-amber-300 font-bold">UTR: {p.utrNumber}</div>
+                      ) : (
+                        <div className="text-[10px] text-slate-500">{p.razorpayPaymentId || p.razorpayOrderId || "—"}</div>
+                      )}
+                    </td>
+                    <td className="py-4">
+                      <div className="space-y-1">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider inline-block ${
+                          p.status === "CAPTURED" || p.status === "SUCCESS" || p.status === "PAID"
+                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                            : p.status === "MANUAL_REVIEW"
+                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse"
+                            : p.status === "FAILED" || p.status === "REJECTED"
+                            ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                            : "bg-slate-700/50 text-slate-300 border border-slate-600"
+                        }`}>
+                          {p.status === "CAPTURED" ? "SUCCESS ✓" : p.status}
+                        </span>
+                        {p.verifiedBy && (
+                          <div className="text-[9px] text-slate-400">by {p.verifiedBy}</div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {isReviewable && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isLoading}
+                              onClick={() => handleApproveOrReject(p.id, "APPROVE")}
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold transition disabled:opacity-50"
+                            >
+                              {isLoading ? "..." : "Approve ✓"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isLoading}
+                              onClick={() => handleApproveOrReject(p.id, "REJECT")}
+                              className="px-2.5 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-white text-[10px] font-bold transition disabled:opacity-50"
+                            >
+                              Reject ✕
+                            </button>
+                          </>
+                        )}
+                        <Link
+                          href={`/receipts/${p.id}`}
+                          target="_blank"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition inline-flex items-center gap-1 text-[11px] font-semibold"
+                        >
+                          <Printer className="w-3 h-3 text-blue-400" />
+                          <span>View</span>
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

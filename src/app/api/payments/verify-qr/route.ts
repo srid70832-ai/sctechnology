@@ -1,24 +1,16 @@
 import { NextResponse } from "next/server";
-import { verifyFirebaseToken } from "@/lib/firebase-admin";
+import { verifyFirebaseToken, getAdminDb } from "@/lib/firebase-admin";
 import { getServerSession } from "@/lib/auth";
-import { 
-  createFirestoreDocumentWithToken, 
-  updateFirestoreDocumentWithToken 
-} from "@/lib/firebase-rest";
-import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    // 1. Verify Authentication: Prioritize Firebase ID Token via Firebase Admin
     const authResult = await verifyFirebaseToken(req);
     let uid = authResult.uid;
     let userEmail = authResult.email || "";
     let userName = authResult.name || "Student";
-    const token = authResult.token;
 
-    // Fallback to cookie session if ID token is not present
     if (!uid) {
       const session = await getServerSession();
       if (session) {
@@ -32,144 +24,94 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized. Please log in to continue." }, { status: 401 });
     }
 
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ error: "Database unavailable." }, { status: 503 });
+    }
+
     const body = await req.json();
-    const { paymentId, orderId, planId, billingCycle = "MONTHLY" } = body;
+    const { paymentId, orderId } = body;
 
-    if (!paymentId && !orderId) {
-      return NextResponse.json({ error: "Payment ID or Order ID is required" }, { status: 400 });
+    const targetId = paymentId || orderId;
+    if (!targetId) {
+      return NextResponse.json({ error: "Payment ID or Order reference required" }, { status: 400 });
     }
 
-    const targetOrderId = orderId || paymentId;
-    const verifiedPlan = (planId || "PRO").toUpperCase();
-    const isYearly = billingCycle === "YEARLY";
+    // Lookup payment record
+    let payDocRef = adminDb.collection("payments").doc(targetId);
+    let payDoc = await payDocRef.get();
 
-    // 2. Mark payment as CAPTURED in Cloud Firestore
-    const now = new Date();
-    const paidAtStr = now.toISOString();
-
-    if (token) {
-      // Update the payment record in Firestore
-      await updateFirestoreDocumentWithToken(token, "payments", targetOrderId, {
-        status: "CAPTURED",
-        paidAt: paidAtStr,
-        verifiedAt: paidAtStr,
-        receiptEmailStatus: "SENT",
-        receiptGenerated: true,
-        updatedAt: paidAtStr,
-      });
-
-      // 3. Activate Plan Subscription in Firestore (subscriptions/{userId})
-      const startDate = now;
-      const endDate = new Date(now);
-      if (isYearly) {
-        endDate.setFullYear(endDate.getFullYear() + 1);
+    if (!payDoc.exists) {
+      const qSnap = await adminDb.collection("payments").where("orderId", "==", targetId).limit(1).get();
+      if (!qSnap.empty) {
+        payDocRef = qSnap.docs[0].ref;
+        payDoc = qSnap.docs[0];
       } else {
-        endDate.setDate(endDate.getDate() + 30);
+        return NextResponse.json({ error: "Payment session not found." }, { status: 404 });
       }
+    }
 
-      await createFirestoreDocumentWithToken(
-        token,
-        "subscriptions",
-        {
-          userId: uid,
-          planId: verifiedPlan,
-          planName: `${verifiedPlan} Plan`,
-          billingCycle: isYearly ? "YEARLY" : "MONTHLY",
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
-          status: "ACTIVE",
-          paymentId: targetOrderId,
-          orderId: targetOrderId,
-          paymentMethod: "QR_UPI",
-          mode: "TEST",
-          createdAt: paidAtStr,
-          updatedAt: paidAtStr,
+    const payData = payDoc.data()!;
+    if (payData.userId !== uid) {
+      return NextResponse.json({ error: "Unauthorized access to payment record." }, { status: 403 });
+    }
+
+    const status = payData.status || "PENDING";
+
+    // 1. If Payment is Verified and PAID
+    if (status === "PAID" || status === "CAPTURED" || status === "SUCCESS") {
+      return NextResponse.json({
+        success: true,
+        paymentStatus: "PAID",
+        message: "Payment successfully verified and captured!",
+        payment: {
+          id: payDoc.id,
+          orderId: payData.orderId,
+          referenceId: payData.referenceId || payData.orderId,
+          receiptNumber: payData.receiptNumber || `RCPT-${payDoc.id.slice(-6)}`,
+          amount: payData.amount,
+          planName: payData.planName || payData.productTitle || "Purchase",
+          productType: payData.productType || payData.type,
+          projectId: payData.projectId,
+          hackathonId: payData.hackathonId,
+          userEmail,
+          userName,
+          paidAt: payData.paidAt || payData.verifiedAt || new Date().toISOString(),
+          status: "PAID",
         },
-        uid
-      );
-
-      // 4. Update user profile plan in Firestore (users/{userId})
-      await updateFirestoreDocumentWithToken(token, "users", uid, {
-        plan: verifiedPlan,
-        subscriptionStatus: "ACTIVE",
-        updatedAt: paidAtStr,
-      });
-
-      // 5. Create in-app notification in Firestore
-      await createFirestoreDocumentWithToken(token, "notifications", {
-        userId: uid,
-        title: `Payment Receipt — SC TECH ${verifiedPlan} Plan Activated ✓`,
-        message: `Your QR payment for the ${verifiedPlan} plan was verified. Subscription is now active.`,
-        type: "PAYMENT",
-        read: false,
-        link: "/dashboard",
-        createdAt: paidAtStr,
       });
     }
 
-    // 6. Update Prisma SQLite Database (if user exists in dev.db)
-    try {
-      const prismaUser = await prisma.user.findFirst({
-        where: {
-          OR: [{ firebaseUid: uid }, { email: userEmail.toLowerCase() }],
+    // 2. If Payment is under Manual Admin Review
+    if (status === "MANUAL_REVIEW") {
+      return NextResponse.json({
+        success: false,
+        paymentStatus: "MANUAL_REVIEW",
+        message: "Your payment reference/UTR is currently under verification by SC TECH administration. Access will be unlocked as soon as verified.",
+        payment: {
+          id: payDoc.id,
+          orderId: payData.orderId,
+          amount: payData.amount,
+          status: "MANUAL_REVIEW",
+          utrNumber: payData.utrNumber,
         },
       });
-
-      if (prismaUser) {
-        // Update payment status
-        await prisma.payment.updateMany({
-          where: { orderId: targetOrderId },
-          data: { status: "SUCCESS" },
-        });
-
-        // Find or create Plan in Prisma
-        const planRecord = await prisma.plan.findFirst({
-          where: { code: verifiedPlan },
-        });
-
-        if (planRecord) {
-          const endDate = new Date();
-          if (isYearly) {
-            endDate.setFullYear(endDate.getFullYear() + 1);
-          } else {
-            endDate.setDate(endDate.getDate() + 30);
-          }
-
-          // Create subscription
-          await prisma.subscription.create({
-            data: {
-              userId: prismaUser.id,
-              planId: planRecord.id,
-              status: "ACTIVE",
-              startDate: new Date(),
-              endDate,
-              autoRenew: false,
-            },
-          });
-        }
-      }
-    } catch (prismaErr) {
-      console.warn("Prisma subscription sync non-blocking warning:", prismaErr);
     }
 
+    // 3. Payment still PENDING (Never automatic success on button click)
     return NextResponse.json({
-      success: true,
-      message: "QR Payment verified and captured successfully!",
+      success: false,
+      paymentStatus: "PENDING",
+      message: "Payment not yet received or verified on the banking network. Please complete your UPI scan and submit your transaction UTR reference if verification is delayed.",
       payment: {
-        id: targetOrderId,
-        receiptNumber: `RCPT-${targetOrderId}`,
-        amount: isYearly ? 4999 : 499,
-        planName: `${verifiedPlan} Plan`,
-        paymentMethod: "QR_UPI",
-        orderId: targetOrderId,
-        userEmail,
-        userName,
-        paidAt: paidAtStr,
-        status: "CAPTURED",
+        id: payDoc.id,
+        orderId: payData.orderId,
+        amount: payData.amount,
+        status: "PENDING",
       },
     });
   } catch (error: any) {
     console.error("Verify QR Payment Error:", error);
-    return NextResponse.json({ error: "Failed to verify QR payment" }, { status: 500 });
+    return NextResponse.json({ error: error?.message || "Failed to check payment status" }, { status: 500 });
   }
 }

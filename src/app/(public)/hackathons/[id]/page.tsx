@@ -52,6 +52,7 @@ import {
   subscribeToHackathonProblemStatements,
   EvaluationCriterion 
 } from "@/lib/problem-statements";
+import { DualPaymentModal } from "@/components/payments/DualPaymentModal";
 
 declare global {
   interface Window {
@@ -80,6 +81,13 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
   const [registering, setRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [payingMember, setPayingMember] = useState(false);
+  const [dualPaymentConfig, setDualPaymentConfig] = useState<{
+    isOpen: boolean;
+    productType: "HACKATHON_REGISTRATION";
+    productId: string;
+    productTitle: string;
+    amount: number;
+  } | null>(null);
 
   // Problem Statements Real-Time
   const [problemStatements, setProblemStatements] = useState<ProblemStatement[]>([]);
@@ -211,77 +219,21 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
   const handleIndividualRegister = async () => {
     const currentUser = auth.currentUser;
     setRegistrationError(null);
+
+    if (hackathon.entryFee > 0) {
+      setDualPaymentConfig({
+        isOpen: true,
+        productType: "HACKATHON_REGISTRATION",
+        productId: hackathon.id,
+        productTitle: `${hackathon.title} — Individual Entry`,
+        amount: hackathon.entryFee,
+      });
+      return;
+    }
+
     setRegistering(true);
     try {
       const token = await currentUser?.getIdToken();
-
-      if (hackathon.entryFee > 0) {
-        if (typeof window === "undefined" || !window.Razorpay) {
-          const message = "Payment gateway is still loading. Please retry in a moment.";
-          setRegistrationError(message);
-          error(message);
-          return;
-        }
-
-        const orderRes = await fetch(`/api/hackathons/${hackathon.id}/team/member-payment`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ action: "create-individual-order" }),
-        });
-
-        const orderData = await orderRes.json();
-        if (!orderRes.ok || !orderData.requiresPayment || !orderData.orderId) {
-          const message = orderData.error || "Failed to initialize payment order";
-          setRegistrationError(message);
-          error(message);
-          return;
-        }
-
-        if (orderData.requiresPayment && orderData.orderId) {
-          const rzp = new window.Razorpay({
-            key: orderData.keyId,
-            amount: orderData.amount,
-            currency: "INR",
-            name: "SC TECH Hackathons",
-            description: `Entry Fee for ${hackathon.title}`,
-            order_id: orderData.orderId,
-            prefill: {
-              name: currentUser?.displayName || user?.name || "Student",
-              email: currentUser?.email || user?.email || "",
-            },
-            theme: { color: "#0284c7" },
-            handler: async (response: any) => {
-              const verifyRes = await fetch(`/api/hackathons/${hackathon.id}/register`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                },
-                body: JSON.stringify({
-                  orderId: response.razorpay_order_id,
-                  paymentId: response.razorpay_payment_id,
-                  signature: response.razorpay_signature,
-                }),
-              });
-              const verifyData = await verifyRes.json();
-              if (verifyRes.ok) {
-                success("Payment successful! You are registered for the hackathon.");
-                setShowRegModal(false);
-                fetchDetail();
-              } else {
-                setRegistrationError(verifyData.error || "Payment verification failed");
-                error(verifyData.error || "Payment verification failed");
-              }
-            },
-          });
-          rzp.open();
-          return;
-        }
-      }
-
       // Free registration
       const res = await fetch(`/api/hackathons/${hackathon.id}/register`, {
         method: "POST",
@@ -296,9 +248,6 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
         success(data.message || "Successfully registered for the hackathon!");
         setShowRegModal(false);
         fetchDetail();
-      } else {
-        setRegistrationError(data.error || "Registration failed");
-        error(data.error || "Registration failed");
       }
     } catch (err: any) {
       setRegistrationError(err?.message || "Registration failed");
@@ -384,76 +333,15 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
 
   // Individual Team Member Payment Handler (Per Participant Fee)
   const handlePayIndividualFee = async () => {
-    setPayingMember(true);
-    try {
-      const token = await auth.currentUser?.getIdToken();
-      const orderRes = await fetch(`/api/hackathons/${hackathon.id}/team/member-payment`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          action: "create-order",
-          teamId: hackathon.userTeam?.id,
-        }),
+    if (hackathon.entryFee > 0) {
+      setDualPaymentConfig({
+        isOpen: true,
+        productType: "HACKATHON_REGISTRATION",
+        productId: hackathon.id,
+        productTitle: `${hackathon.title} — Team Spot Entry Fee`,
+        amount: hackathon.entryFee,
       });
-
-      const orderData = await orderRes.json();
-      if (!orderRes.ok || !orderData.orderId) {
-        error(orderData.error || "Failed to initialize payment order");
-        setPayingMember(false);
-        return;
-      }
-
-      if (typeof window !== "undefined" && window.Razorpay) {
-        const rzp = new window.Razorpay({
-          key: orderData.keyId,
-          amount: orderData.amount,
-          currency: "INR",
-          name: "SC TECH Hackathons",
-          description: `Individual Fee for ${hackathon.title}`,
-          order_id: orderData.orderId,
-          prefill: {
-            name: auth.currentUser?.displayName || user?.name || "Student",
-            email: auth.currentUser?.email || user?.email || "",
-          },
-          theme: { color: "#0284c7" },
-          handler: async (response: any) => {
-            const verifyRes = await fetch(`/api/hackathons/${hackathon.id}/team/member-payment`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-              },
-              body: JSON.stringify({
-                action: "verify",
-                teamId: hackathon.userTeam?.id,
-                orderId: response.razorpay_order_id,
-                paymentId: response.razorpay_payment_id,
-                signature: response.razorpay_signature,
-              }),
-            });
-
-            const verifyData = await verifyRes.json();
-            if (verifyRes.ok) {
-              success("Payment verified! Your spot in the team is now fully confirmed.");
-              fetchDetail();
-            } else {
-              error(verifyData.error || "Payment verification failed");
-            }
-            setPayingMember(false);
-          },
-        });
-        rzp.open();
-      } else {
-        error("Payment gateway is loading. Please retry in a moment.");
-        setPayingMember(false);
-      }
-    } catch (err) {
-      console.error(err);
-      error("Payment processing error");
-      setPayingMember(false);
+      return;
     }
   };
 
@@ -1898,6 +1786,22 @@ export default function HackathonDetailPage({ params }: { params: { id: string }
             </div>
           </div>
         </div>
+      )}
+
+      {dualPaymentConfig && (
+        <DualPaymentModal
+          isOpen={dualPaymentConfig.isOpen}
+          onClose={() => setDualPaymentConfig(null)}
+          productType={dualPaymentConfig.productType}
+          productId={dualPaymentConfig.productId}
+          productTitle={dualPaymentConfig.productTitle}
+          amount={dualPaymentConfig.amount}
+          onSuccess={() => {
+            setDualPaymentConfig(null);
+            setShowRegModal(false);
+            fetchDetail();
+          }}
+        />
       )}
 
       <Footer />

@@ -40,36 +40,77 @@ export async function POST(req: Request) {
 
     // 2. Parse & Verify Amount on Server (never trust client amounts)
     const body = await req.json();
-    const { planId, billingCycle = "MONTHLY", hackathonId } = body;
+    const { planId, billingCycle = "MONTHLY", hackathonId, projectId, duration } = body;
 
     let amount = 0;
     let planName = "SC TECH Subscription";
+    let productType = "SUBSCRIPTION";
+    let targetProductId = "";
+    let targetProductTitle = "";
 
-    if (planId) {
+    const { getAdminDb } = await import("@/lib/firebase-admin");
+    const adminDb = getAdminDb();
+
+    if (projectId) {
+      const { getProjectBySlug } = await import("@/lib/projects-service");
+      const project = await getProjectBySlug(projectId);
+      if (!project) {
+        return NextResponse.json({ error: "Project not found or invalid." }, { status: 404 });
+      }
+
+      targetProductId = project.id || projectId;
+      targetProductTitle = project.title || "Real-World Project";
+      const projectPrice = project.price ?? (project.accessLevel === "FREE" ? 0 : 299);
+      amount = projectPrice;
+      planName = `${project.title} — Project Unlock`;
+      productType = "PROJECT_PURCHASE";
+
+      if (amount <= 0) {
+        return NextResponse.json({ error: "This project is free and does not require payment." }, { status: 400 });
+      }
+    } else if (hackathonId) {
+      targetProductId = hackathonId;
+      productType = "HACKATHON_REGISTRATION";
+      let fee = 35;
+      let hTitle = "Hackathon";
+
+      if (adminDb) {
+        const hDoc = await adminDb.collection("hackathons").doc(hackathonId).get();
+        if (hDoc.exists) {
+          const hData = hDoc.data()!;
+          fee = Number(hData.entryFee ?? hData.registrationFee ?? 35);
+          hTitle = hData.title || "Hackathon";
+        }
+      }
+
+      amount = fee;
+      targetProductTitle = hTitle;
+      planName = `${hTitle} — Hackathon Entry Registration`;
+    } else if (planId) {
       const verified = await getVerifiedPlanAmount(planId, billingCycle);
       amount = verified.amount;
+      targetProductId = planId.toUpperCase();
+      targetProductTitle = verified.name;
       planName = `${verified.name} (${billingCycle})`;
+      productType = "SUBSCRIPTION";
 
       if (amount <= 0 && planId.toUpperCase() !== "FREE") {
         return NextResponse.json({ error: "Invalid plan price." }, { status: 400 });
       }
-    } else if (hackathonId) {
-      amount = 35;
-      planName = "Hackathon Entry Registration";
     } else {
-      return NextResponse.json({ error: "Plan ID or Hackathon ID required." }, { status: 400 });
+      return NextResponse.json({ error: "Project ID, Plan ID, or Hackathon ID required." }, { status: 400 });
     }
 
-    // 3. Generate QR and Order Reference with Admin-controlled settings
-    const orderRef = `SC-${Date.now().toString().slice(-6)}`;
+    // 3. Generate Unique Standardized Reference
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const orderRef = `SC-PAY-${dateStr}-${randomSuffix}`;
     const receiptNumber = generateReceiptNumber();
 
     let customQrImageUrl: string | null = null;
     let upiString = generateUpiPayload(amount, orderRef, planName);
 
     try {
-      const { getAdminDb } = await import("@/lib/firebase-admin");
-      const adminDb = getAdminDb();
       if (adminDb) {
         const paymentSettingsDoc = await adminDb.collection("siteSettings").doc("payment").get();
         if (paymentSettingsDoc.exists) {
@@ -106,24 +147,35 @@ export async function POST(req: Request) {
       userEmail,
       userName,
       orderId: orderRef,
-      planId: planId?.toUpperCase() || "PLUS",
+      referenceId: orderRef,
+      productType,
+      type: productType,
+      productId: targetProductId,
+      productTitle: targetProductTitle,
+      planId: planId?.toUpperCase() || (productType === "SUBSCRIPTION" ? "PLUS" : undefined),
+      projectId: projectId || undefined,
+      hackathonId: hackathonId || undefined,
+      duration: duration || undefined,
       planName,
       billingCycle,
       amount,
       currency: "INR",
-      paymentMethod: "QR_UPI",
+      paymentMethod: "UPI_QR",
+      method: "UPI_QR",
       status: "PENDING",
       receiptNumber,
       receiptEmailStatus: "PENDING",
       receiptGenerated: false,
-      mode: "TEST",
+      mode: "LIVE",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     // 4. Save Payment Record to Cloud Firestore
     let paymentDocId = orderRef;
-    if (token) {
+    if (adminDb) {
+      await adminDb.collection("payments").doc(orderRef).set(paymentPayload);
+    } else if (token) {
       const docId = await createFirestoreDocumentWithToken(token, "payments", paymentPayload, orderRef);
       if (docId) {
         paymentDocId = docId;
