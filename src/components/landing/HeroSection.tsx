@@ -6,7 +6,6 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { CountUp } from "@/components/landing/CountUp";
 import { VideoModal } from "@/components/ui/VideoModal";
-import { FuturisticCareerBackground } from "@/components/landing/FuturisticCareerBackground";
 import { 
   Rocket, 
   ArrowRight, 
@@ -39,8 +38,15 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ stats }) => {
 
   return (
     <section className="relative overflow-hidden pt-8 pb-14 bg-[#070B14]">
-      {/* Futuristic SC TECH Career-Network Background Animation */}
-      <FuturisticCareerBackground />
+      {/* Clean Dark Navy Ambient Background Treatment */}
+      <div 
+        className="absolute inset-0 w-full h-full pointer-events-none z-0"
+        style={{
+          background: "radial-gradient(ellipse 80% 50% at 50% 20%, #0B1633 0%, #070B14 100%)",
+        }}
+      />
+      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-blue-600/10 blur-[140px] pointer-events-none rounded-full z-0" />
+      <div className="absolute top-1/3 right-1/4 w-[500px] h-[300px] bg-indigo-600/10 blur-[140px] pointer-events-none rounded-full z-0" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 space-y-10">
         
