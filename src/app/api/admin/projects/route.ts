@@ -1,53 +1,99 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth";
-import { 
-  collection, 
-  doc, 
-  getDocs, 
-  getDoc, 
-  setDoc, 
-  deleteDoc, 
-  serverTimestamp,
-  query,
-  orderBy
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { COLLECTIONS, removeUndefinedValues } from "@/lib/firestore";
+import { verifyFirebaseToken, getAdminDb } from "@/lib/firebase-admin";
+import { getServerSession } from "@/lib/auth";
 import { ProjectItem, slugify } from "@/lib/platform-models";
 import { notifyIndexNow, publicContentUrl } from "@/lib/indexnow";
 
 export const dynamic = "force-dynamic";
 
+function sanitizeData<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      clean[key] = value;
+    }
+  }
+  return clean;
+}
+
+async function verifyAdminAuth(req: Request) {
+  const authResult = await verifyFirebaseToken(req);
+  const adminEmails = ["srics2425@gmail.com", "admin@sctech.com", "superadmin@sctech.com"];
+  
+  if (
+    authResult.success &&
+    (authResult.role === "ADMIN" ||
+      authResult.role === "SUPER_ADMIN" ||
+      adminEmails.includes(authResult.email || ""))
+  ) {
+    return { authorized: true, user: authResult };
+  }
+
+  // Fallback to cookie session
+  const session = await getServerSession(req);
+  if (
+    session &&
+    (session.role === "ADMIN" ||
+      session.role === "SUPER_ADMIN" ||
+      adminEmails.includes(session.email || ""))
+  ) {
+    return { authorized: true, user: session };
+  }
+
+  return {
+    authorized: false,
+    errorResponse: NextResponse.json(
+      { success: false, error: "Unauthorized. Admin privileges required." },
+      { status: authResult.uid || session?.userId ? 403 : 401 }
+    ),
+  };
+}
+
 export async function GET(req: Request) {
   try {
-    const { authorized, errorResponse } = await requireAdmin(req);
-    if (!authorized) return errorResponse;
+    const auth = await verifyAdminAuth(req);
+    if (!auth.authorized) return auth.errorResponse;
 
-    const colRef = collection(db, COLLECTIONS.PROJECTS);
-    let snap;
-    try {
-      const q = query(colRef, orderBy("createdAt", "desc"));
-      snap = await getDocs(q);
-    } catch {
-      snap = await getDocs(colRef);
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ error: "Database unavailable." }, { status: 503 });
     }
 
+    const snap = await adminDb.collection("projects").get();
     const projects: ProjectItem[] = [];
+
     snap.forEach((d) => {
-      projects.push({ id: d.id, ...(d.data() as any) });
+      const data = d.data();
+      projects.push({
+        id: d.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt || new Date().toISOString(),
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt || new Date().toISOString(),
+      } as ProjectItem);
+    });
+
+    projects.sort((a, b) => {
+      const timeA = new Date(a.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      return timeB - timeA;
     });
 
     return NextResponse.json({ success: true, count: projects.length, projects });
   } catch (error: any) {
-    console.error("Admin GET Projects Error:", error);
+    console.error("[ADMIN_PROJECTS_ERROR] GET error:", error?.message, error?.stack);
     return NextResponse.json({ error: error?.message || "Failed to fetch projects" }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const { authorized, session, errorResponse } = await requireAdmin(req);
-    if (!authorized) return errorResponse;
+    const auth = await verifyAdminAuth(req);
+    if (!auth.authorized) return auth.errorResponse;
+
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ error: "Database unavailable." }, { status: 503 });
+    }
 
     const body = await req.json();
     const {
@@ -83,10 +129,10 @@ export async function POST(req: Request) {
 
     const projectSlug = slug || slugify(title);
     const projectId = id || `proj-${projectSlug}-${Date.now().toString().slice(-4)}`;
-    const docRef = doc(db, COLLECTIONS.PROJECTS, projectId);
+    const docRef = adminDb.collection("projects").doc(projectId);
 
-    const existingSnap = await getDoc(docRef);
-    const isNew = !existingSnap.exists();
+    const existingSnap = await docRef.get();
+    const isNew = !existingSnap.exists;
 
     const toArray = (input: any) => {
       if (Array.isArray(input)) return input.map((s) => String(s).trim()).filter(Boolean);
@@ -94,7 +140,8 @@ export async function POST(req: Request) {
       return [];
     };
 
-    const payload: Partial<ProjectItem> = {
+    const now = new Date().toISOString();
+    const rawPayload = {
       id: projectId,
       title: String(title).trim(),
       slug: projectSlug,
@@ -116,12 +163,13 @@ export async function POST(req: Request) {
       submissionMethod: submissionMethod === "GOOGLE_FORM" ? "GOOGLE_FORM" : "WEBSITE",
       googleFormUrl: googleFormUrl ? String(googleFormUrl).trim() : null,
       status: status || "PUBLISHED",
-      updatedAt: serverTimestamp(),
-      ...(isNew ? { createdAt: serverTimestamp(), createdBy: session?.email || "ADMIN" } : {}),
+      updatedAt: now,
+      ...(isNew ? { createdAt: now, createdBy: (auth.user as any)?.email || "ADMIN" } : {}),
     };
 
-    const cleaned = removeUndefinedValues(payload);
-    await setDoc(docRef, cleaned, { merge: true });
+    const payload = sanitizeData(rawPayload);
+    await docRef.set(payload, { merge: true });
+
     if (payload.status === "PUBLISHED") {
       notifyIndexNow(publicContentUrl("projects", projectSlug));
     }
@@ -132,15 +180,20 @@ export async function POST(req: Request) {
       projectId,
     });
   } catch (error: any) {
-    console.error("Admin POST Project Error:", error);
+    console.error("[ADMIN_PROJECTS_ERROR] POST error:", error?.message, error?.stack);
     return NextResponse.json({ error: error?.message || "Failed to save project" }, { status: 500 });
   }
 }
 
 export async function DELETE(req: Request) {
   try {
-    const { authorized, errorResponse } = await requireAdmin(req);
-    if (!authorized) return errorResponse;
+    const auth = await verifyAdminAuth(req);
+    if (!auth.authorized) return auth.errorResponse;
+
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ error: "Database unavailable." }, { status: 503 });
+    }
 
     const { searchParams } = new URL(req.url);
     let id = searchParams.get("id");
@@ -155,11 +208,45 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Project ID is required for deletion." }, { status: 400 });
     }
 
-    await deleteDoc(doc(db, COLLECTIONS.PROJECTS, id));
+    const docRef = adminDb.collection("projects").doc(id);
+    const existingSnap = await docRef.get();
+
+    if (!existingSnap.exists) {
+      return NextResponse.json({ error: "Project not found." }, { status: 404 });
+    }
+
+    // Safety check: Check if student enrollments exist for this project
+    const enrollmentsSnap = await adminDb
+      .collection("projectEnrollments")
+      .where("projectId", "==", id)
+      .limit(1)
+      .get();
+
+    if (!enrollmentsSnap.empty) {
+      // Safe Archive: do not destroy student academic/payment lifecycle history
+      await docRef.update({
+        status: "ARCHIVED",
+        updatedAt: new Date().toISOString(),
+        archivedBy: (auth.user as any)?.email || "ADMIN",
+      });
+
+      return NextResponse.json({
+        success: true,
+        archived: true,
+        message: "Project has active student enrollments and has been safely archived instead of deleted.",
+      });
+    }
+
+    await docRef.delete();
     notifyIndexNow(publicContentUrl("projects", id));
-    return NextResponse.json({ success: true, message: "Project deleted successfully." });
+
+    return NextResponse.json({
+      success: true,
+      archived: false,
+      message: "Project deleted successfully.",
+    });
   } catch (error: any) {
-    console.error("Admin DELETE Project Error:", error);
+    console.error("[ADMIN_PROJECTS_ERROR] DELETE error:", error?.message, error?.stack);
     return NextResponse.json({ error: error?.message || "Failed to delete project" }, { status: 500 });
   }
 }

@@ -20,11 +20,12 @@ import {
   User,
   Clock
 } from "lucide-react";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
+import { useToast } from "@/components/providers/ToastProvider";
+import { auth } from "@/lib/firebase";
 import { UserProjectTask } from "@/lib/project-tasks-service";
 
 export default function AdminProjectTasksEvaluationPage() {
+  const { success, error, toast } = useToast();
   const [tasks, setTasks] = useState<UserProjectTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -34,12 +35,20 @@ export default function AdminProjectTasksEvaluationPage() {
   const fetchTasks = async () => {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "userProjectTasks"));
-      const list: UserProjectTask[] = [];
-      snap.forEach((d) => list.push(d.data() as UserProjectTask));
-      setTasks(list);
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/admin/projects/tasks", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(data.tasks || []);
+      } else {
+        const d = await res.json().catch(() => null);
+        error(d?.error || "Failed to load task queue");
+      }
     } catch (err) {
       console.error("Error fetching admin tasks:", err);
+      error("Network error loading tasks");
     } finally {
       setLoading(false);
     }
@@ -60,9 +69,13 @@ export default function AdminProjectTasksEvaluationPage() {
 
     setEvaluatingTaskId(task.id);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetch("/api/admin/projects/evaluate-task", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           taskId: task.id,
           status,
@@ -72,15 +85,16 @@ export default function AdminProjectTasksEvaluationPage() {
         }),
       });
 
-      if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        success(data.message || `Task evaluated as ${status}.`);
         await fetchTasks();
       } else {
-        const d = await res.json();
-        alert(d.error || "Evaluation failed");
+        error(data?.error || "Evaluation failed");
       }
     } catch (err) {
       console.error(err);
-      alert("Error occurred during evaluation");
+      error("Error occurred during evaluation");
     } finally {
       setEvaluatingTaskId(null);
     }

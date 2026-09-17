@@ -208,14 +208,19 @@ export default function AdminProjectsPage() {
         method: "DELETE",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (res.ok) {
-        success("Project deleted successfully.");
-        setProjects(projects.filter((p) => p.id !== id));
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        success(data.message || "Project deleted successfully.");
+        if (data.archived) {
+          setProjects(projects.map((p) => (p.id === id ? { ...p, status: "ARCHIVED" as any } : p)));
+        } else {
+          setProjects(projects.filter((p) => p.id !== id));
+        }
       } else {
-        error("Failed to delete project");
+        error(data?.error || "Failed to delete project");
       }
     } catch {
-      error("Network error");
+      error("Network error while attempting to delete project");
     }
   };
 

@@ -19,9 +19,9 @@ import {
   User,
   X
 } from "lucide-react";
-import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
-import { formatINR, formatDate } from "@/lib/utils";
+import { useToast } from "@/components/providers/ToastProvider";
+import { auth } from "@/lib/firebase";
+import { formatINR } from "@/lib/utils";
 
 interface EligibleCandidate {
   userId: string;
@@ -34,10 +34,19 @@ interface EligibleCandidate {
   stipendAmount: number;
   bankDetailsSubmitted: boolean;
   paymentStatus: "PENDING" | "PAID";
+  receiptId?: string | null;
 }
 
 export default function AdminProjectStipendsPage() {
+  const { success, error, toast } = useToast();
   const [candidates, setCandidates] = useState<EligibleCandidate[]>([]);
+  const [rules, setRules] = useState({
+    tier1MinTasks: 8,
+    tier1Amount: 5000,
+    tier2MinTasks: 6,
+    tier2MaxTasks: 7,
+    tier2Amount: 1200,
+  });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [disbursingId, setDisbursingId] = useState<string | null>(null);
@@ -45,53 +54,23 @@ export default function AdminProjectStipendsPage() {
   const fetchEligibleCandidates = async () => {
     setLoading(true);
     try {
-      // Aggregate user tasks to find eligible candidates
-      const tasksSnap = await getDocs(collection(db, "userProjectTasks"));
-      const userProjectMap: Record<string, { approved: number; total: number; userId: string; projectId: string }> = {};
-
-      tasksSnap.forEach((d) => {
-        const t = d.data();
-        const key = `${t.userId}_${t.projectId}`;
-        if (!userProjectMap[key]) {
-          userProjectMap[key] = { approved: 0, total: 0, userId: t.userId, projectId: t.projectId };
-        }
-        userProjectMap[key].total += 1;
-        if (t.status === "APPROVED" || t.status === "COMPLETED") {
-          userProjectMap[key].approved += 1;
-        }
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/admin/projects/stipends", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-
-      // Check payment receipts for already paid status
-      const receiptSnap = await getDocs(collection(db, "paymentReceipts"));
-      const paidUserKeys = new Set<string>();
-      receiptSnap.forEach((d) => {
-        const r = d.data();
-        paidUserKeys.add(`${r.userId}_${r.projectName}`);
-      });
-
-      const list: EligibleCandidate[] = [];
-      for (const key of Object.keys(userProjectMap)) {
-        const data = userProjectMap[key];
-        if (data.approved >= 6) {
-          const stipend = data.approved >= 8 ? 5000 : 1200;
-          list.push({
-            userId: data.userId,
-            studentName: "Verified Candidate",
-            studentEmail: "student@sctech.in",
-            projectId: data.projectId,
-            projectName: data.projectId.replace(/-/g, " ").toUpperCase(),
-            approvedTasks: data.approved,
-            totalTasks: 8,
-            stipendAmount: stipend,
-            bankDetailsSubmitted: true,
-            paymentStatus: paidUserKeys.has(key) ? "PAID" : "PENDING",
-          });
+      if (res.ok) {
+        const data = await res.json();
+        setCandidates(data.candidates || []);
+        if (data.rules) {
+          setRules(data.rules);
         }
+      } else {
+        const d = await res.json().catch(() => null);
+        error(d?.error || "Failed to load stipend candidates");
       }
-
-      setCandidates(list);
     } catch (err) {
       console.error("Error fetching stipend candidates:", err);
+      error("Network error while loading stipend candidates");
     } finally {
       setLoading(false);
     }
@@ -103,16 +82,20 @@ export default function AdminProjectStipendsPage() {
 
   const handleDisburse = async (c: EligibleCandidate) => {
     const txnRef = window.prompt(
-      `Enter Bank / IMPS / UPI Transaction Reference for ${c.userId} (Amount: ₹${c.stipendAmount}):`,
-      `UPI/${Math.floor(100000000000 + Math.random() * 900000000000)}/HDFC`
+      `Enter Bank / IMPS / UPI Transaction Reference for ${c.studentName} (${c.userId}) — Amount: ₹${c.stipendAmount.toLocaleString("en-IN")}:`,
+      `UPI/${Math.floor(100000000000 + Math.random() * 900000000000)}/SC_TECH`
     );
     if (!txnRef) return;
 
     setDisbursingId(c.userId);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetch("/api/admin/projects/disburse-stipend", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           userId: c.userId,
           studentName: c.studentName,
@@ -120,24 +103,23 @@ export default function AdminProjectStipendsPage() {
           projectId: c.projectId,
           projectName: c.projectName,
           stipendAmount: c.stipendAmount,
-          tasksCompleted: 8,
+          tasksCompleted: c.totalTasks || 8,
           approvedTasks: c.approvedTasks,
-          transactionReference: txnRef,
+          transactionReference: txnRef.trim(),
           paymentMethod: "Direct Bank Transfer (IMPS / UPI)",
         }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        alert(`Stipend Disbursed Successfully!\nReceipt ID: ${data.receipt?.receiptId}\nOfficial Letter ID: ${data.letter?.letterId}`);
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        success(`Stipend Disbursed Successfully! Receipt ID: ${data.receipt?.receiptId}`);
         await fetchEligibleCandidates();
       } else {
-        const d = await res.json();
-        alert(d.error || "Disbursement failed");
+        error(data?.error || "Disbursement failed");
       }
     } catch (err) {
       console.error(err);
-      alert("An error occurred during disbursement");
+      error("An error occurred during disbursement");
     } finally {
       setDisbursingId(null);
     }
@@ -183,7 +165,7 @@ export default function AdminProjectStipendsPage() {
         <div className="flex items-center gap-3">
           <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
           <div className="text-xs text-slate-300">
-            <strong>Active Disbursement Rules:</strong> 8 / 8 Approved Tasks = <span className="text-emerald-400 font-bold">₹5,000</span> | 6-7 Approved Tasks = <span className="text-blue-400 font-bold">₹1,200</span>.
+            <strong>Active Disbursement Rules:</strong> {rules.tier1MinTasks} / 8 Approved Tasks = <span className="text-emerald-400 font-bold">{formatINR(rules.tier1Amount)}</span> | {rules.tier2MinTasks}-{rules.tier2MaxTasks} Approved Tasks = <span className="text-blue-400 font-bold">{formatINR(rules.tier2Amount)}</span>.
           </div>
         </div>
         <span className="text-[10px] font-mono text-slate-500 uppercase">Authoritative Ledger</span>
