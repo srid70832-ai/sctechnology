@@ -89,11 +89,21 @@ export function getAdminAuth(): Auth | null {
   }
 }
 
+let _adminDbInstance: Firestore | null = null;
+
 export function getAdminDb(): Firestore | null {
   try {
-    if (adminApp) return getFirestore(adminApp);
-    const app = getAdminApp();
-    return app ? getFirestore(app) : null;
+    if (_adminDbInstance) return _adminDbInstance;
+    const app = adminApp || getAdminApp();
+    if (!app) return null;
+    const db = getFirestore(app);
+    try {
+      db.settings({ ignoreUndefinedProperties: true });
+    } catch {
+      // settings can only be called once, ignore if already set
+    }
+    _adminDbInstance = db;
+    return db;
   } catch {
     return null;
   }

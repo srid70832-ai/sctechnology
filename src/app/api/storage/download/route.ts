@@ -8,6 +8,10 @@ export const dynamic = "force-dynamic";
  * Validates if an objectKey requires authentication or is public.
  */
 function isPublicAsset(objectKey: string): boolean {
+  // Payment QR images are public checkout graphics
+  if (objectKey.startsWith("payments/qr/")) {
+    return true;
+  }
   // Hackathon banners and logos are public promotional media
   if (objectKey.startsWith("hackathons/") && (objectKey.includes("/banner/") || objectKey.includes("/logos/"))) {
     return true;

@@ -12,6 +12,16 @@ import {
 
 export const dynamic = "force-dynamic";
 
+function sanitizeFirestoreData<T extends Record<string, any>>(data: T): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, val] of Object.entries(data)) {
+    if (val !== undefined) {
+      result[key] = val;
+    }
+  }
+  return result;
+}
+
 export async function POST(req: Request) {
   try {
     // 1. Verify Authentication: Prioritize Firebase ID Token via Firebase Admin
@@ -32,6 +42,7 @@ export async function POST(req: Request) {
     }
 
     if (!uid) {
+      console.warn("[PAYMENT_QR] Unauthorized request attempt to create QR order");
       return NextResponse.json(
         { error: "Unauthorized. Please log in to continue." },
         { status: 401 }
@@ -116,33 +127,40 @@ export async function POST(req: Request) {
         if (paymentSettingsDoc.exists) {
           const s = paymentSettingsDoc.data()!;
           if (s.isActive !== false) {
-            if (s.paymentQrImageUrl) {
-              customQrImageUrl = s.paymentQrImageUrl;
+            if (s.paymentQrImageUrl && typeof s.paymentQrImageUrl === "string" && s.paymentQrImageUrl.trim()) {
+              customQrImageUrl = s.paymentQrImageUrl.trim();
             }
             if (s.paymentUpiLink && typeof s.paymentUpiLink === "string" && s.paymentUpiLink.trim()) {
               const baseUpi = s.paymentUpiLink.trim();
               if (baseUpi.startsWith("upi://pay")) {
-                const url = new URL(baseUpi);
-                url.searchParams.set("am", amount.toFixed(2));
-                url.searchParams.set("cu", "INR");
-                url.searchParams.set("tr", orderRef);
-                url.searchParams.set("tn", `SC TECH ${planName}`);
-                upiString = url.toString();
+                const qIndex = baseUpi.indexOf("?");
+                if (qIndex !== -1) {
+                  const queryPart = baseUpi.substring(qIndex + 1);
+                  const params = new URLSearchParams(queryPart);
+                  params.set("am", amount.toFixed(2));
+                  params.set("cu", "INR");
+                  params.set("tr", orderRef);
+                  params.set("tn", `SC TECH ${planName}`);
+                  upiString = `upi://pay?${params.toString()}`;
+                } else {
+                  upiString = `${baseUpi}?am=${amount.toFixed(2)}&cu=INR&tr=${encodeURIComponent(orderRef)}&tn=${encodeURIComponent(`SC TECH ${planName}`)}`;
+                }
               } else if (baseUpi.includes("@")) {
                 const upiId = baseUpi;
-                upiString = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent("SC TECH")}&am=${amount.toFixed(2)}&cu=INR&tr=${orderRef}&tn=${encodeURIComponent(`SC TECH ${planName}`)}`;
+                upiString = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent("SC TECH")}&am=${amount.toFixed(2)}&cu=INR&tr=${encodeURIComponent(orderRef)}&tn=${encodeURIComponent(`SC TECH ${planName}`)}`;
               }
             }
           }
         }
       }
     } catch (settErr) {
-      console.warn("Payment settings resolution notice:", settErr);
+      console.warn("[PAYMENT_QR] Payment settings resolution warning:", settErr);
     }
 
+    // Generate per-order dynamic QR code with exact amount and transaction ref
     const qrDataUrl = await createQrDataUrl(upiString);
 
-    const paymentPayload = {
+    const rawPaymentPayload = {
       userId: uid,
       userEmail,
       userName,
@@ -152,7 +170,7 @@ export async function POST(req: Request) {
       type: productType,
       productId: targetProductId,
       productTitle: targetProductTitle,
-      planId: planId?.toUpperCase() || (productType === "SUBSCRIPTION" ? "PLUS" : undefined),
+      planId: planId ? String(planId).toUpperCase() : (productType === "SUBSCRIPTION" ? "PLUS" : undefined),
       projectId: projectId || undefined,
       hackathonId: hackathonId || undefined,
       duration: duration || undefined,
@@ -170,6 +188,10 @@ export async function POST(req: Request) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+
+    const paymentPayload = sanitizeFirestoreData(rawPaymentPayload);
+
+    console.log(`[PAYMENT_QR] Creating QR order: ref=${orderRef} uid=${uid} amount=₹${amount} type=${productType} product=${targetProductId}`);
 
     // 4. Save Payment Record to Cloud Firestore
     let paymentDocId = orderRef;
@@ -203,7 +225,7 @@ export async function POST(req: Request) {
         });
       }
     } catch (prismaErr) {
-      console.warn("Prisma payment mirror non-blocking warning:", prismaErr);
+      console.warn("[PAYMENT_QR] Prisma payment mirror non-blocking warning:", prismaErr);
     }
 
     return NextResponse.json({
@@ -221,7 +243,10 @@ export async function POST(req: Request) {
       userName,
     });
   } catch (error: any) {
-    console.error("Create QR Order Error:", error);
-    return NextResponse.json({ error: "Failed to generate dynamic QR payment" }, { status: 500 });
+    console.error("[PAYMENT_QR_ERROR] Failed to generate dynamic QR payment:", error?.message || error, error?.stack);
+    return NextResponse.json(
+      { error: error?.message || "Failed to generate dynamic QR payment" },
+      { status: 500 }
+    );
   }
 }

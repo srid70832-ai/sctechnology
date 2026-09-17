@@ -276,7 +276,7 @@ export async function POST(req: Request) {
           eventName: eventName || internshipTitle || courseName || projectName || "SC TECH Certification Track",
           type: certificateType,
           issueDate,
-          qrCodeData: `http://localhost:3000/verify/${certificateNo}`,
+          qrCodeData: `${process.env.NEXT_PUBLIC_APP_URL || "https://sctechnology.in"}/verify/${certificateNo}`,
           status: "VERIFIED",
           metadata: JSON.stringify(metadata),
         },
