@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { FolderGit2, Search, ArrowRight, ExternalLink } from "lucide-react";
 import { ProjectItem } from "@/types";
+import { ProjectCardBanner } from "@/components/projects/ProjectCardBanner";
 
 interface ProjectsSectionProps {
   initialProjects: ProjectItem[];
@@ -87,8 +88,9 @@ export const ProjectsSection: React.FC<ProjectsSectionProps> = ({ initialProject
         {/* Projects Grid with AnimatePresence */}
         <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           <AnimatePresence>
-            {filtered.slice(0, 4).map((p) => {
+            {filtered.slice(0, 4).map((p, idx) => {
               const pTech = Array.isArray(p?.techStack) ? p.techStack : Array.isArray((p as any)?.technologyStack) ? (p as any).technologyStack : [];
+              const isFeatured = idx < 2 || String(p.difficulty || "").toLowerCase() === "advanced";
               return (
                 <motion.div
                   layout
@@ -98,31 +100,43 @@ export const ProjectsSection: React.FC<ProjectsSectionProps> = ({ initialProject
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.3 }}
                   whileHover={{ y: -6 }}
-                  className="p-5 rounded-2xl bg-[#0C162E]/80 border border-slate-800 hover:border-blue-500/50 transition-all flex flex-col justify-between group shadow-lg hover:shadow-blue-500/10 hover:shadow-2xl"
+                  className="p-4 sm:p-5 rounded-2xl bg-[#0C162E]/80 border border-slate-800 hover:border-blue-500/50 transition-all flex flex-col justify-between group shadow-lg hover:shadow-blue-500/10 hover:shadow-2xl space-y-3"
                 >
-                  <div>
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mb-3 group-hover:scale-110 group-hover:rotate-6 transition-transform">
-                      <FolderGit2 className="w-5 h-5" />
+                  <div className="space-y-3">
+                    {/* 16:9 Image / Banner */}
+                    <ProjectCardBanner
+                      id={p.id}
+                      slug={p.slug}
+                      title={p.title}
+                      category={p.category}
+                      difficulty={p.difficulty}
+                      bannerUrl={(p as any).bannerUrl || p.thumbnail}
+                      accessType={p.accessType || (p as any).accessLevel}
+                      isFeatured={isFeatured}
+                      aspectRatio="16/9"
+                    />
+
+                    <div>
+                      <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition line-clamp-1 mb-1">
+                        {p.title || "Industry Project"}
+                      </h3>
+                      <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                        {p.shortDesc || (p as any).shortDescription || "Production code repository with documentation."}
+                      </p>
                     </div>
-                    <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition line-clamp-1 mb-1.5">
-                      {p.title || "Industry Project"}
-                    </h3>
-                    <p className="text-xs text-slate-400 line-clamp-2 mb-3">
-                      {p.shortDesc || "Production code repository with documentation."}
-                    </p>
 
                     {/* Tech tags */}
-                    <div className="flex flex-wrap gap-1.5 mb-4">
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
                       {pTech.slice(0, 3).map((tech: string, i: number) => (
                         <span
                           key={i}
-                          className="px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 font-medium"
+                          className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] text-slate-300 font-mono"
                         >
                           {tech}
                         </span>
                       ))}
                       {pTech.length > 3 && (
-                        <span className="px-1.5 py-0.5 rounded bg-slate-800/50 text-[10px] text-slate-400 font-medium">
+                        <span className="px-1.5 py-0.5 rounded-md bg-slate-900/60 text-[10px] text-slate-500 font-mono">
                           +{pTech.length - 3}
                         </span>
                       )}

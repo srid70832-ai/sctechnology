@@ -42,6 +42,9 @@ export interface ProjectData {
   sourceCodeFileName: string;
   sourceCodeSnippet: string;
   isPremium: boolean;
+  bannerUrl?: string | null;
+  imageUrl?: string | null;
+  thumbnail?: string | null;
   accessType?: "FREE" | "PRO";
   accessLevel: "PREMIUM_399" | "FREE" | "PRO";
   price?: number;

@@ -18,11 +18,13 @@ import {
   CheckCircle2,
   Lock,
   Code2,
-  Award
+  Award,
+  Image as ImageIcon
 } from "lucide-react";
 import { useToast } from "@/components/providers/ToastProvider";
 import { ProjectItem, formatISTDate } from "@/lib/platform-models";
 import { auth } from "@/lib/firebase";
+import { ProjectCardBanner } from "@/components/projects/ProjectCardBanner";
 
 export default function AdminProjectsPage() {
   const { success, error } = useToast();
@@ -373,9 +375,22 @@ export default function AdminProjectsPage() {
             return (
               <div
                 key={p.id}
-                className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-4 shadow-xl relative"
+                className="p-5 rounded-3xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between space-y-4 shadow-xl relative"
               >
                 <div className="space-y-3">
+                  {/* Banner Image */}
+                  <ProjectCardBanner
+                    id={p.id}
+                    slug={p.slug}
+                    title={p.title}
+                    category={(p as any).category || ""}
+                    difficulty={p.difficulty}
+                    bannerUrl={p.bannerUrl || (p as any).thumbnail}
+                    accessType={p.accessType || (p as any).accessLevel}
+                    showBadges={false}
+                    aspectRatio="16/9"
+                  />
+
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <span
@@ -557,6 +572,51 @@ export default function AdminProjectsPage() {
                   placeholder="Industry pain point, challenges faced by enterprises, why this solution matters..."
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 focus:outline-none focus:border-blue-500"
                 />
+              </div>
+
+              {/* Project Banner / Cover Image */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-300 font-bold flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Project Banner Image URL (Optional)</span>
+                  </label>
+                  <span className="text-[10px] text-slate-500">Auto-generates high-tech topic visual if blank</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="url"
+                    value={formData.bannerUrl}
+                    onChange={(e) => setFormData({ ...formData, bannerUrl: e.target.value })}
+                    placeholder="https://example.com/project-cover-banner.jpg or /images/..."
+                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 focus:outline-none focus:border-blue-500"
+                  />
+                  {formData.bannerUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, bannerUrl: "" })}
+                      className="px-3 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {/* Banner Live Preview */}
+                <div className="pt-2">
+                  <span className="text-[10px] text-slate-400 block mb-1 font-semibold">Card Banner Preview:</span>
+                  <div className="max-w-xs">
+                    <ProjectCardBanner
+                      title={formData.title || "Project Title"}
+                      category="Full Stack"
+                      difficulty={formData.difficulty}
+                      bannerUrl={formData.bannerUrl}
+                      accessType={formData.accessType}
+                      aspectRatio="16/9"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* GitHub Repo URL & Live Demo */}

@@ -76,6 +76,8 @@ export interface ProjectItem {
   category: string;
   isPremium: boolean;
   thumbnail?: string | null;
+  bannerUrl?: string | null;
+  imageUrl?: string | null;
   demoUrl?: string | null;
   githubUrl?: string | null;
   downloadCount: number;

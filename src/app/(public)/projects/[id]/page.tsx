@@ -10,6 +10,7 @@ import { useToast } from "@/components/providers/ToastProvider";
 import { ProjectData } from "@/lib/projects-data";
 import { ProjectActivationModal } from "@/components/projects/ProjectActivationModal";
 import { ProjectDurationOption } from "@/lib/project-lifecycle-service";
+import { ProjectCardBanner } from "@/components/projects/ProjectCardBanner";
 import { 
   FolderGit2, 
   ArrowLeft, 
@@ -128,13 +129,18 @@ export default function ProjectDetailPage() {
             
             {/* Visual Header Card */}
             <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-6 relative overflow-hidden">
-              <div className="relative w-full h-48 sm:h-56 rounded-2xl bg-gradient-to-tr from-blue-950 via-slate-900 to-indigo-950 border border-slate-800 flex items-center justify-center overflow-hidden">
-                <div className="absolute inset-0 bg-blue-600/10 blur-xl" />
-                <FolderGit2 className="w-20 h-20 text-blue-400/80" />
-                <div className="absolute bottom-3 left-4 text-xs font-mono text-cyan-300">
-                  {project.category} • Blueprint v1.0
-                </div>
-              </div>
+              <ProjectCardBanner
+                id={project.id}
+                slug={project.slug}
+                title={project.title}
+                category={project.category}
+                difficulty={project.difficulty}
+                bannerUrl={(project as any).bannerUrl || (project as any).imageUrl || (project as any).thumbnail}
+                accessType={project.accessType || (project as any).accessLevel}
+                showBadges={false}
+                aspectRatio="auto"
+                className="h-48 sm:h-64"
+              />
 
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">

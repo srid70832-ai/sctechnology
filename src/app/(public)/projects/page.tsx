@@ -8,6 +8,7 @@ import { Navbar } from "@/components/ui/Navbar";
 import { Footer } from "@/components/ui/Footer";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { ProjectData } from "@/lib/projects-data";
+import { ProjectCardBanner } from "@/components/projects/ProjectCardBanner";
 import { 
   FolderGit2, 
   Search, 
@@ -308,34 +309,19 @@ export default function ProjectsListPage() {
                     isFree ? "border-emerald-500/30 hover:border-emerald-500/60" : "border-slate-800 hover:border-blue-500/50"
                   }`}
                 >
-                  {/* Card Header & Thumbnail */}
+                  {/* Card Header & 16:9 Banner */}
                   <div className="space-y-3">
-                    <div className="relative w-full h-36 rounded-2xl bg-gradient-to-tr from-blue-950 via-slate-900 to-indigo-950 border border-slate-800 overflow-hidden flex items-center justify-center">
-                      <div className="absolute inset-0 bg-blue-500/10 opacity-50 group-hover:opacity-100 transition" />
-                      <FolderGit2 className={`w-12 h-12 group-hover:scale-110 transition ${isFree ? "text-emerald-400/80" : "text-blue-400/80"}`} />
-                      
-                      <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-                        {isFree ? (
-                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-black tracking-wider uppercase shadow-md flex items-center gap-1">
-                            <Sparkles className="w-2.5 h-2.5" /> FREE
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-0.5 rounded-full bg-indigo-600/90 text-white text-[9px] font-black tracking-wider uppercase shadow-md flex items-center gap-1">
-                            <Lock className="w-2.5 h-2.5" /> PRO
-                          </span>
-                        )}
-
-                        {isFeatured && (
-                          <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black tracking-wider uppercase shadow-md">
-                            Featured
-                          </span>
-                        )}
-                      </div>
-
-                      <span className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded-md bg-slate-950/80 text-[10px] text-slate-300 font-mono">
-                        {p.difficulty}
-                      </span>
-                    </div>
+                    <ProjectCardBanner
+                      id={p.id}
+                      slug={p.slug}
+                      title={p.title}
+                      category={p.category}
+                      difficulty={p.difficulty}
+                      bannerUrl={(p as any).bannerUrl || (p as any).imageUrl || (p as any).thumbnail}
+                      accessType={p.accessType || (p as any).accessLevel}
+                      isFeatured={isFeatured}
+                      aspectRatio="16/9"
+                    />
 
                     <div>
                       <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition line-clamp-1">

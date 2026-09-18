@@ -27,12 +27,22 @@ import {
   Globe,
   Rocket,
   ChevronDown,
-  ArrowRight
+  ArrowRight,
+  GraduationCap,
+  FolderGit2,
+  FileCheck2,
+  Info
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { 
+  ENABLE_SAMPLE_PAST_STUDENTS, 
+  SAMPLE_PAST_STUDENTS, 
+  SamplePastStudent 
+} from "@/lib/sample-past-students";
+import { FuturisticTrophyVisual } from "@/components/leaderboard/FuturisticTrophyVisual";
 
 export default function LeaderboardPage() {
-  const [activeTab, setActiveTab] = useState<"champions" | "achievements" | "internships">("champions");
+  const [activeTab, setActiveTab] = useState<"champions" | "achievements" | "internships" | "past-highlights">("champions");
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -74,6 +84,12 @@ export default function LeaderboardPage() {
     i.studentName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     i.companyName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     i.role?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredPastStudents = SAMPLE_PAST_STUDENTS.filter((s: SamplePastStudent) =>
+    s.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.college.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (s.specialization && s.specialization.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -120,61 +136,9 @@ export default function LeaderboardPage() {
             </div>
           </div>
 
-          {/* Right Column: 3D Trophy on Tiered Pedestal + 4 Floating Badges + Neon Script */}
-          <div className="lg:col-span-6 flex items-center justify-center relative min-h-[320px]">
-            
-            {/* Cosmic globe background glow */}
-            <div className="absolute w-72 h-72 rounded-full bg-blue-600/15 blur-3xl pointer-events-none" />
-
-            {/* Neon Cursive Floating Quote */}
-            <div className="absolute -top-3 right-2 text-right hidden sm:block pointer-events-none">
-              <span className="font-serif italic text-sm text-indigo-300 drop-shadow-[0_0_10px_rgba(99,102,241,0.6)]">
-                Students Today. <br /> Leaders Tomorrow.
-              </span>
-            </div>
-
-            {/* Floating Badge 1: Top Innovators (Top-Left) */}
-            <div className="absolute top-4 left-0 sm:left-4 z-20 px-3.5 py-1.5 rounded-xl bg-slate-950/85 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.2)] backdrop-blur-md">
-              <Crown className="w-3.5 h-3.5 text-amber-400" />
-              <span>Top Innovators</span>
-            </div>
-
-            {/* Floating Badge 2: Real-World Impact (Top-Right) */}
-            <div className="absolute top-10 right-4 sm:right-10 z-20 px-3.5 py-1.5 rounded-xl bg-slate-950/85 border border-blue-500/40 text-blue-300 text-xs font-bold flex items-center gap-2 shadow-[0_0_15px_rgba(59,130,246,0.2)] backdrop-blur-md">
-              <BarChart3 className="w-3.5 h-3.5 text-blue-400" />
-              <span>Real-World Impact</span>
-            </div>
-
-            {/* Center Trophy with Pedestal */}
-            <div className="relative z-10 flex flex-col items-center">
-              <div className="relative">
-                <img
-                  src="/images/hackathon-trophy.png"
-                  alt="SC TECH Grand Trophy"
-                  className="w-48 sm:w-56 object-contain filter drop-shadow-[0_15px_30px_rgba(245,158,11,0.35)]"
-                />
-              </div>
-
-              {/* Tiered Futuristic Pedestal with Brand Pillars */}
-              <div className="w-44 sm:w-52 py-2 px-3 rounded-xl bg-gradient-to-r from-blue-900/80 via-indigo-900/90 to-purple-900/80 border border-cyan-400/40 shadow-[0_0_20px_rgba(6,182,212,0.3)] text-center -mt-3">
-                <span className="text-[9px] font-black uppercase tracking-widest text-cyan-200 block font-mono">
-                  LEARN • BUILD • GROW • SUCCEED
-                </span>
-              </div>
-            </div>
-
-            {/* Floating Badge 3: Hackathon Champions (Bottom-Left) */}
-            <div className="absolute bottom-4 left-0 sm:left-6 z-20 px-3.5 py-1.5 rounded-xl bg-slate-950/85 border border-cyan-500/40 text-cyan-300 text-xs font-bold flex items-center gap-2 shadow-[0_0_15px_rgba(6,182,212,0.2)] backdrop-blur-md">
-              <Zap className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Hackathon Champions</span>
-            </div>
-
-            {/* Floating Badge 4: Career Ready (Bottom-Right) */}
-            <div className="absolute bottom-6 right-2 sm:right-8 z-20 px-3.5 py-1.5 rounded-xl bg-slate-950/85 border border-purple-500/40 text-purple-300 text-xs font-bold flex items-center gap-2 shadow-[0_0_15px_rgba(168,85,247,0.2)] backdrop-blur-md">
-              <Users className="w-3.5 h-3.5 text-purple-400" />
-              <span>Career Ready</span>
-            </div>
-
+          {/* Right Column: Balanced Futuristic Visual Anchor with 4 Orbiting Badges */}
+          <div className="lg:col-span-6 flex items-center justify-center w-full">
+            <FuturisticTrophyVisual />
           </div>
 
         </div>
@@ -280,6 +244,20 @@ export default function LeaderboardPage() {
               <Briefcase className="w-3.5 h-3.5 text-emerald-400" />
               <span>Internship Stipends ({internshipAchievements.length})</span>
             </button>
+
+            {ENABLE_SAMPLE_PAST_STUDENTS && (
+              <button
+                onClick={() => setActiveTab("past-highlights")}
+                className={`px-5 py-2.5 rounded-xl text-xs font-extrabold transition flex items-center gap-2 whitespace-nowrap ${
+                  activeTab === "past-highlights"
+                    ? "bg-gradient-to-r from-cyan-600 via-indigo-600 to-purple-600 text-white shadow-[0_0_20px_rgba(6,182,212,0.4)] border border-cyan-400/40"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Past Student Highlights ({filteredPastStudents.length})</span>
+              </button>
+            )}
           </div>
 
           {/* Right Search Input & Time Filter */}
@@ -318,18 +296,18 @@ export default function LeaderboardPage() {
             </div>
           ) : activeTab === "champions" ? (
             <div>
-              {/* Table Header Row */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-[#050914] text-slate-500 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+              {/* Desktop Table View */}
+              <div className="hidden lg:block overflow-x-auto w-full scrollbar-thin scrollbar-thumb-slate-800">
+                <table className="w-full text-left text-xs text-slate-300 border-collapse table-auto min-w-[900px]">
+                  <thead className="bg-[#050914] text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
                     <tr>
-                      <th className="py-3.5 px-4">RANK</th>
-                      <th className="py-3.5 px-4">STUDENT INNOVATOR</th>
-                      <th className="py-3.5 px-4">COLLEGE / INSTITUTION</th>
-                      <th className="py-3.5 px-4 text-center">PODIUM FINISHES</th>
-                      <th className="py-3.5 px-4 text-right">TOTAL PRIZE WON</th>
-                      <th className="py-3.5 px-4 text-center">SCORE</th>
-                      <th className="py-3.5 px-4 text-right">BADGES</th>
+                      <th className="py-4 px-3 w-16 text-center whitespace-nowrap">RANK</th>
+                      <th className="py-4 px-4 min-w-[200px] whitespace-nowrap">STUDENT INNOVATOR</th>
+                      <th className="py-4 px-4 min-w-[220px] whitespace-nowrap">COLLEGE / INSTITUTION</th>
+                      <th className="py-4 px-3 min-w-[130px] text-center whitespace-nowrap">PODIUM FINISHES</th>
+                      <th className="py-4 px-4 min-w-[130px] text-right whitespace-nowrap">TOTAL PRIZE WON</th>
+                      <th className="py-4 px-3 min-w-[110px] text-center whitespace-nowrap">SCORE</th>
+                      <th className="py-4 px-4 min-w-[120px] text-right whitespace-nowrap">BADGES</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -360,8 +338,8 @@ export default function LeaderboardPage() {
                     ) : (
                       filteredChampions.map((c: any) => (
                         <tr key={c.studentUid || c.id} className="hover:bg-slate-800/30 transition">
-                          <td className="py-4 px-4">
-                            <span className={`inline-flex items-center justify-center w-7 h-7 rounded-xl font-bold font-mono text-xs ${
+                          <td className="py-3.5 px-3 text-center align-middle w-16">
+                            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold font-mono text-xs ${
                               c.rank === 1
                                 ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
                                 : c.rank === 2
@@ -373,18 +351,20 @@ export default function LeaderboardPage() {
                               #{c.rank}
                             </span>
                           </td>
-                          <td className="py-4 px-4">
-                            <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                          <td className="py-3.5 px-4 align-middle">
+                            <div className="font-bold text-white text-sm flex items-center gap-1.5 whitespace-nowrap">
                               {c.rank === 1 && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
                               <span>{c.studentName}</span>
                             </div>
-                            <span className="text-[10px] text-slate-500">{c.totalWins || 1} Total Wins</span>
+                            <span className="text-[10px] text-slate-500 block">{c.totalWins || 1} Total Wins</span>
                           </td>
-                          <td className="py-4 px-4 text-slate-400 text-xs">
-                            {c.studentCollege || "Engineering Student"}
+                          <td className="py-3.5 px-4 align-middle text-slate-400 text-xs">
+                            <div className="max-w-[240px]">
+                              <span className="line-clamp-2 leading-tight">{c.studentCollege || "Engineering Student"}</span>
+                            </div>
                           </td>
-                          <td className="py-4 px-4 text-center">
-                            <div className="inline-flex items-center gap-1.5 text-xs">
+                          <td className="py-3.5 px-3 text-center align-middle">
+                            <div className="inline-flex items-center justify-center gap-1.5 text-xs whitespace-nowrap">
                               {c.firstPlaceCount > 0 && (
                                 <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
                                   🥇 {c.firstPlaceCount}
@@ -402,16 +382,16 @@ export default function LeaderboardPage() {
                               )}
                             </div>
                           </td>
-                          <td className="py-4 px-4 text-right font-mono font-bold text-amber-400">
+                          <td className="py-3.5 px-4 text-right align-middle font-mono font-bold text-amber-400 whitespace-nowrap">
                             ₹{(c.totalPrizeEarned || 0).toLocaleString()}
                           </td>
-                          <td className="py-4 px-4 text-center">
-                            <span className="px-2.5 py-1 rounded-xl bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30 font-mono">
+                          <td className="py-3.5 px-3 text-center align-middle">
+                            <span className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-xl bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30 font-mono text-xs whitespace-nowrap min-w-[90px] leading-none">
                               {c.score || 100} pts
                             </span>
                           </td>
-                          <td className="py-4 px-4 text-right">
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          <td className="py-3.5 px-4 text-right align-middle">
+                            <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 whitespace-nowrap min-w-[105px]">
                               🏆 Winner
                             </span>
                           </td>
@@ -420,6 +400,79 @@ export default function LeaderboardPage() {
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile Card Layout for Champions (<lg screens) */}
+              <div className="lg:hidden space-y-3">
+                {filteredChampions.length === 0 ? (
+                  <div className="py-16 text-center">
+                    <div className="max-w-md mx-auto space-y-4">
+                      <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center mx-auto">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-base font-black text-white">No student champions yet!</h4>
+                        <p className="text-xs text-slate-400">
+                          Be the first to make your mark. Participate in hackathons and win.
+                        </p>
+                      </div>
+                      <Link
+                        href="/hackathons"
+                        className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-sky-400 via-blue-600 to-purple-600 hover:from-sky-300 hover:to-purple-500 text-white font-bold text-xs shadow-[0_0_20px_rgba(56,189,248,0.4)] transition"
+                      >
+                        <Trophy className="w-3.5 h-3.5" />
+                        <span>Explore Hackathons →</span>
+                      </Link>
+                    </div>
+                  </div>
+                ) : (
+                  filteredChampions.map((c: any) => (
+                    <div
+                      key={c.studentUid || c.id}
+                      className="p-4 rounded-2xl bg-[#090F20]/90 border border-slate-800 space-y-3 shadow-lg w-full overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-xl font-bold font-mono text-xs shrink-0 ${
+                            c.rank === 1
+                              ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                              : c.rank === 2
+                              ? "bg-slate-400/20 text-slate-200 border border-slate-400/40"
+                              : c.rank === 3
+                              ? "bg-amber-800/20 text-amber-400 border border-amber-800/40"
+                              : "bg-slate-800 text-slate-400"
+                          }`}>
+                            #{c.rank}
+                          </span>
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-white text-sm flex items-center gap-1.5 truncate">
+                              {c.rank === 1 && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                              <span className="truncate">{c.studentName}</span>
+                            </h4>
+                            <p className="text-[10px] text-slate-500 truncate">{c.totalWins || 1} Total Wins</p>
+                          </div>
+                        </div>
+                        <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-xl bg-blue-500/20 text-blue-300 font-mono font-black text-xs shrink-0 whitespace-nowrap min-w-[76px]">
+                          {c.score || 100} pts
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300 flex items-center gap-2 min-w-0">
+                        <GraduationCap className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="truncate text-[11px] text-slate-300">{c.studentCollege || "Engineering Student"}</span>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-xs">
+                        <span className="font-mono font-bold text-amber-400">
+                          ₹{(c.totalPrizeEarned || 0).toLocaleString()} Won
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          🏆 Winner
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           ) : activeTab === "achievements" ? (
@@ -483,6 +536,236 @@ export default function LeaderboardPage() {
                   ))}
                 </div>
               )}
+            </div>
+          ) : activeTab === "past-highlights" ? (
+            <div className="space-y-6">
+              {/* Header Banner */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-950/40 via-indigo-950/30 to-[#0A1020]/90 border border-cyan-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-[0_0_25px_rgba(6,182,212,0.12)]">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center shrink-0 text-cyan-400">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-black text-white tracking-wide">
+                        Past Student Highlights
+                      </h3>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold tracking-wider uppercase bg-cyan-500/15 border border-cyan-500/30 text-cyan-300">
+                        Featured Achievers
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Recognizing top student innovators, hackathon podium winners, and technical milestones across premier institutions.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-950/80 px-3 py-1.5 rounded-xl border border-cyan-800/60">
+                    {filteredPastStudents.length} Highlights
+                  </span>
+                </div>
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden lg:block overflow-x-auto w-full scrollbar-thin scrollbar-thumb-slate-800">
+                <table className="w-full text-left text-xs text-slate-300 border-collapse table-auto min-w-[950px]">
+                  <thead className="bg-[#050914] text-slate-400 font-bold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                    <tr>
+                      <th className="py-4 px-3 w-16 text-center whitespace-nowrap">RANK</th>
+                      <th className="py-4 px-4 min-w-[210px] whitespace-nowrap">STUDENT INNOVATOR</th>
+                      <th className="py-4 px-4 min-w-[220px] whitespace-nowrap">COLLEGE / INSTITUTION</th>
+                      <th className="py-4 px-3 min-w-[130px] text-center whitespace-nowrap">HACKATHON WINS</th>
+                      <th className="py-4 px-3 min-w-[120px] text-center whitespace-nowrap">PROJECTS</th>
+                      <th className="py-4 px-3 min-w-[120px] text-center whitespace-nowrap">CERTIFICATES</th>
+                      <th className="py-4 px-3 min-w-[110px] text-center whitespace-nowrap">SCORE</th>
+                      <th className="py-4 px-4 min-w-[120px] text-right whitespace-nowrap">ACHIEVEMENT</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {filteredPastStudents.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-12 text-center text-slate-400">
+                          No student records match your search query.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredPastStudents.map((student, idx) => (
+                        <tr
+                          key={student.id}
+                          className="hover:bg-slate-800/40 hover:border-cyan-500/20 transition-all duration-200 group"
+                          style={{
+                            animation: `fadeInUp 0.3s ease-out forwards ${idx * 25}ms`
+                          }}
+                        >
+                          {/* Rank Column */}
+                          <td className="py-3.5 px-3 text-center align-middle w-16">
+                            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-black font-mono text-xs shadow-sm ${
+                              student.rank === 1
+                                ? "bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+                                : student.rank === 2
+                                ? "bg-slate-400/20 text-slate-200 border border-slate-400/50 shadow-[0_0_12px_rgba(226,232,240,0.2)]"
+                                : student.rank === 3
+                                ? "bg-amber-800/20 text-amber-400 border border-amber-800/50 shadow-[0_0_12px_rgba(180,83,9,0.2)]"
+                                : student.rank <= 10
+                                ? "bg-cyan-500/10 text-cyan-300 border border-cyan-500/30"
+                                : "bg-slate-800/80 text-slate-400 border border-slate-700/50"
+                            }`}>
+                              #{student.rank}
+                            </span>
+                          </td>
+
+                          {/* Student Name */}
+                          <td className="py-3.5 px-4 align-middle">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600/30 to-purple-600/30 border border-purple-500/30 flex items-center justify-center text-purple-200 font-bold text-xs shrink-0">
+                                {student.studentName.split(" ").map(n => n[0]).join("")}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-bold text-white text-sm flex items-center gap-1.5 whitespace-nowrap group-hover:text-cyan-300 transition-colors">
+                                  {student.rank === 1 && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                                  <span>{student.studentName}</span>
+                                </div>
+                                {student.specialization && (
+                                  <span className="text-[10px] text-slate-400 block font-medium truncate max-w-[180px]">
+                                    {student.specialization}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* College */}
+                          <td className="py-3.5 px-4 align-middle text-slate-300 text-xs font-medium">
+                            <div className="flex items-center gap-2 max-w-[240px]">
+                              <GraduationCap className="w-4 h-4 text-slate-500 shrink-0" />
+                              <span className="line-clamp-2 leading-tight">{student.college}</span>
+                            </div>
+                          </td>
+
+                          {/* Hackathon Wins */}
+                          <td className="py-3.5 px-3 text-center align-middle">
+                            <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 text-amber-300 font-bold border border-amber-500/30 text-xs whitespace-nowrap min-w-[95px]">
+                              <Trophy className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span>{student.hackathonWins} {student.hackathonWins === 1 ? "Win" : "Wins"}</span>
+                            </span>
+                          </td>
+
+                          {/* Projects Completed */}
+                          <td className="py-3.5 px-3 text-center align-middle">
+                            <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-500/15 text-blue-300 font-bold border border-blue-500/30 text-xs font-mono whitespace-nowrap min-w-[100px]">
+                              <FolderGit2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                              <span>{student.projectsCompleted} Projects</span>
+                            </span>
+                          </td>
+
+                          {/* Certificates */}
+                          <td className="py-3.5 px-3 text-center align-middle">
+                            <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/15 text-purple-300 font-bold border border-purple-500/30 text-xs font-mono whitespace-nowrap min-w-[95px]">
+                              <FileCheck2 className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                              <span>{student.certificates} Certs</span>
+                            </span>
+                          </td>
+
+                          {/* Score */}
+                          <td className="py-3.5 px-3 text-center align-middle">
+                            <span className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 font-black border border-cyan-500/40 font-mono text-xs whitespace-nowrap min-w-[90px] shadow-[0_0_10px_rgba(6,182,212,0.15)] leading-none">
+                              {student.score} pts
+                            </span>
+                          </td>
+
+                          {/* Achievement */}
+                          <td className="py-3.5 px-4 text-right align-middle">
+                            <span className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 whitespace-nowrap min-w-[105px]">
+                              🏆 Achiever
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Card Layout (<lg screens) */}
+              <div className="lg:hidden space-y-3">
+                {filteredPastStudents.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 text-xs">
+                    No student records match your search query.
+                  </div>
+                ) : (
+                  filteredPastStudents.map((student, idx) => (
+                    <div
+                      key={student.id}
+                      className="p-4 rounded-2xl bg-[#090F20]/90 border border-slate-800/90 hover:border-cyan-500/40 transition space-y-3 shadow-lg w-full overflow-hidden"
+                      style={{
+                        animation: `fadeInUp 0.3s ease-out forwards ${idx * 25}ms`
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-xl font-black font-mono text-xs shrink-0 ${
+                            student.rank === 1
+                              ? "bg-amber-500/20 text-amber-300 border border-amber-500/50"
+                              : student.rank === 2
+                              ? "bg-slate-400/20 text-slate-200 border border-slate-400/50"
+                              : student.rank === 3
+                              ? "bg-amber-800/20 text-amber-400 border border-amber-800/50"
+                              : "bg-slate-800 text-slate-400"
+                          }`}>
+                            #{student.rank}
+                          </span>
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-white text-sm flex items-center gap-1.5 truncate">
+                              {student.rank === 1 && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                              <span className="truncate">{student.studentName}</span>
+                            </h4>
+                            {student.specialization && (
+                              <p className="text-[10px] text-cyan-400 font-medium truncate">
+                                {student.specialization}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-xl bg-cyan-500/20 text-cyan-300 font-black border border-cyan-500/40 font-mono text-xs shrink-0 whitespace-nowrap min-w-[76px]">
+                          {student.score} pts
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300 flex items-center gap-2 min-w-0">
+                        <GraduationCap className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="truncate text-[11px] text-slate-300">{student.college}</span>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 pt-0.5 text-center">
+                        <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+                          <span className="text-[9px] text-slate-400 block uppercase font-bold">WINS</span>
+                          <span className="text-xs font-bold text-amber-300">{student.hackathonWins}</span>
+                        </div>
+                        <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+                          <span className="text-[9px] text-slate-400 block uppercase font-bold">PROJECTS</span>
+                          <span className="text-xs font-bold text-blue-300 font-mono">{student.projectsCompleted}</span>
+                        </div>
+                        <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+                          <span className="text-[9px] text-slate-400 block uppercase font-bold">CERTS</span>
+                          <span className="text-xs font-bold text-purple-300 font-mono">{student.certificates}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px]">
+                        <span className="flex items-center gap-1 text-emerald-400 font-semibold truncate">
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">Verified Achievement</span>
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0">
+                          🏆 Achiever
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
@@ -549,6 +832,112 @@ export default function LeaderboardPage() {
           )}
 
         </div>
+
+        {/* DEDICATED PAST STUDENT HIGHLIGHTS SHOWCASE SECTION */}
+        {ENABLE_SAMPLE_PAST_STUDENTS && (
+          <section className="space-y-6 pt-4" id="past-student-highlights">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-800/80">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                    Past Student Highlights
+                  </h2>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Top performing student innovators, hackathon champions, and technical project milestones.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setActiveTab("past-highlights");
+                    window.scrollTo({ top: 380, behavior: "smooth" });
+                  }}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs shadow-[0_0_15px_rgba(6,182,212,0.3)] transition flex items-center gap-2 shrink-0"
+                >
+                  <Trophy className="w-3.5 h-3.5" />
+                  <span>View All Highlights in Table</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Top 3 Podium Spotlights */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {SAMPLE_PAST_STUDENTS.slice(0, 3).map((std) => (
+                <div
+                  key={std.id}
+                  className={`p-6 rounded-3xl bg-gradient-to-b from-[#0B132B]/90 to-[#070A14]/90 border transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl relative overflow-hidden flex flex-col justify-between ${
+                    std.rank === 1
+                      ? "border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.15)]"
+                      : std.rank === 2
+                      ? "border-slate-400/40 shadow-[0_0_25px_rgba(226,232,240,0.1)]"
+                      : "border-amber-800/40 shadow-[0_0_25px_rgba(180,83,9,0.1)]"
+                  }`}
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-black font-mono text-sm ${
+                          std.rank === 1
+                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                            : std.rank === 2
+                            ? "bg-slate-400/20 text-slate-200 border border-slate-400/40"
+                            : "bg-amber-800/20 text-amber-400 border border-amber-800/40"
+                        }`}>
+                          #{std.rank}
+                        </span>
+                        {std.rank === 1 && (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                            <Crown className="w-3 h-3 text-amber-400" /> Rank 1 Champion
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-cyan-400 font-mono uppercase font-bold">
+                        Top Performer
+                      </span>
+                    </div>
+
+                    <div>
+                      <h3 className="text-lg font-black text-white">{std.studentName}</h3>
+                      <p className="text-xs text-cyan-400 font-medium">{std.specialization}</p>
+                      <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+                        <GraduationCap className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span>{std.college}</span>
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-[#060914] border border-slate-800/80 text-center">
+                      <div>
+                        <span className="text-[9px] text-slate-500 font-bold block uppercase">WINS</span>
+                        <span className="text-sm font-black text-amber-300">{std.hackathonWins}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-500 font-bold block uppercase">PROJECTS</span>
+                        <span className="text-sm font-black text-blue-300 font-mono">{std.projectsCompleted}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-500 font-bold block uppercase">CERTS</span>
+                        <span className="text-sm font-black text-purple-300 font-mono">{std.certificates}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 mt-4 border-t border-slate-800/80 flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-slate-400">Leaderboard Score</span>
+                    <span className="text-sm font-mono font-black text-cyan-300 bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/30">
+                      {std.score} pts
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* BOTTOM 4 FEATURE HIGHLIGHTS STRIP (Matching Screenshot) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
