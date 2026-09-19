@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminUpdateConnectionStatus } from "@/lib/idea-link-service";
 import { requireAdmin } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const { authorized, session, errorResponse } = await requireAdmin(req);

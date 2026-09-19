@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { prisma } from "@/lib/prisma";
 import { ProjectEvaluationReport } from "@/lib/project-lifecycle-service";
+import { requireAdmin } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
+    const { authorized, errorResponse } = await requireAdmin(req);
+    if (!authorized) return errorResponse;
+
     const body = await req.json();
     const { 
       enrollmentId, 

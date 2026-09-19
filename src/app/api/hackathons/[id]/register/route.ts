@@ -7,6 +7,8 @@ import { processReferralConversion } from "@/lib/referrals/service";
 import { resolveHackathon } from "@/lib/hackathons/resolve-hackathon";
 import { logHackathonOperation } from "@/lib/hackathons/diagnostics";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(req);

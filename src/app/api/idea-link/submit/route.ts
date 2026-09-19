@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { submitIdea } from "@/lib/idea-link-service";
 import { requireAuth } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const { authorized, session, errorResponse } = await requireAuth(req);

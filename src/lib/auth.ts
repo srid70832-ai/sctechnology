@@ -168,7 +168,10 @@ export async function getServerSession(req?: Request): Promise<SessionPayload | 
     }
 
     return null;
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.digest === "DYNAMIC_SERVER_USAGE" || err?.message?.includes("Dynamic server usage")) {
+      throw err;
+    }
     console.error("[AUTH] getServerSession error:", err);
     return null;
   }

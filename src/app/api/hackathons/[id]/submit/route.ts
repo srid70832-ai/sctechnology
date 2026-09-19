@@ -8,6 +8,8 @@ import { db } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { resolveHackathon } from "@/lib/hackathons/resolve-hackathon";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(req);

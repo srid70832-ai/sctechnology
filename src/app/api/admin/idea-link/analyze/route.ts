@@ -3,6 +3,8 @@ import { getIdeaById, saveAiAnalysisToIdea } from "@/lib/idea-link-service";
 import { analyzeIdeaWithGemini } from "@/lib/idea-link-gemini";
 import { requireAdmin } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const { authorized, errorResponse } = await requireAdmin(req);

@@ -149,6 +149,22 @@ export const DEFAULT_PLANS: PlanData[] = [
 // Fetch plans from Firestore (falls back safely to DEFAULT_PLANS)
 export async function getPlansFromFirestore(): Promise<PlanData[]> {
   try {
+    if (typeof window === "undefined") {
+      const { getAdminDb } = await import("@/lib/firebase-admin");
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection("plans").where("active", "==", true).orderBy("sortOrder", "asc").get();
+        if (!snap.empty) {
+          const plans: PlanData[] = [];
+          snap.forEach((docSnap) => {
+            plans.push({ id: docSnap.id, ...(docSnap.data() as PlanData) });
+          });
+          if (plans.length > 0) return plans;
+        }
+        return DEFAULT_PLANS;
+      }
+    }
+
     const colRef = collection(db, "plans");
     const q = query(colRef, where("active", "==", true), orderBy("sortOrder", "asc"));
     const snap = await getDocs(q);
@@ -216,6 +232,8 @@ export interface PlanPriceResult {
   savings: number;
 }
 
+export type CalculatedPrice = PlanPriceResult;
+
 export function calculatePlanPrice(
   originalPrice: number,
   planCode: string,
@@ -263,6 +281,18 @@ export function calculatePlanPrice(
 
 export async function getOfferFromFirestore(): Promise<LimitedOfferConfig> {
   try {
+    if (typeof window === "undefined") {
+      const { getAdminDb } = await import("@/lib/firebase-admin");
+      const adminDb = getAdminDb();
+      if (adminDb) {
+        const snap = await adminDb.collection("settings").doc("limited_offer").get();
+        if (snap.exists) {
+          return { ...DEFAULT_OFFER_CONFIG, ...(snap.data() as LimitedOfferConfig) };
+        }
+        return DEFAULT_OFFER_CONFIG;
+      }
+    }
+
     const docRef = doc(db, "settings", "limited_offer");
     const snap = await getDoc(docRef);
     if (snap.exists()) {
@@ -275,6 +305,19 @@ export async function getOfferFromFirestore(): Promise<LimitedOfferConfig> {
 }
 
 export async function saveOfferToFirestore(offer: Partial<LimitedOfferConfig>): Promise<void> {
+  if (typeof window === "undefined") {
+    const { getAdminDb } = await import("@/lib/firebase-admin");
+    const adminDb = getAdminDb();
+    if (adminDb) {
+      await adminDb.collection("settings").doc("limited_offer").set({
+        ...DEFAULT_OFFER_CONFIG,
+        ...offer,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      return;
+    }
+  }
+
   const docRef = doc(db, "settings", "limited_offer");
   await setDoc(docRef, {
     ...DEFAULT_OFFER_CONFIG,
