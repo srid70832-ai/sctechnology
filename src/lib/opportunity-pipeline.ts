@@ -1,18 +1,4 @@
-import { 
-  collection, 
-  doc, 
-  getDoc, 
-  getDocs, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  serverTimestamp 
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { removeUndefinedValues } from "@/lib/firestore";
 import { OpportunityItem, OpportunitySyncResult } from "./opportunity-models";
 import { slugify, isDeadlinePassed } from "./platform-models";
@@ -530,10 +516,18 @@ export function generateDedupKey(title: string, company: string, type: string): 
 }
 
 /**
- * Ensures curated initial seed opportunities exist in Firestore
+ * Ensures curated initial seed opportunities exist in Firestore using Firebase Admin SDK.
+ * Idempotent: Checks if each document already exists by deterministic ID before writing.
+ * Preserves all existing admin modifications and never creates duplicates.
  */
 export async function seedInitialOpportunities(): Promise<number> {
   try {
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      console.warn("Firebase Admin SDK unavailable during opportunity seeding.");
+      return 0;
+    }
+
     let addedCount = 0;
     const now = new Date().toISOString();
 
@@ -541,10 +535,10 @@ export async function seedInitialOpportunities(): Promise<number> {
       const dedupKey = generateDedupKey(seed.title, seed.company, seed.opportunityType);
       const id = slugify(`${seed.company}-${seed.title}`).substring(0, 60);
 
-      const docRef = doc(db, OPPORTUNITY_COLLECTION, id);
-      const existing = await getDoc(docRef);
+      const docRef = adminDb.collection(OPPORTUNITY_COLLECTION).doc(id);
+      const existing = await docRef.get();
 
-      if (!existing.exists()) {
+      if (!existing.exists) {
         const item: OpportunityItem = {
           ...seed,
           id,
@@ -553,13 +547,13 @@ export async function seedInitialOpportunities(): Promise<number> {
           fetchedAt: now,
           lastVerifiedAt: now
         };
-        await setDoc(docRef, removeUndefinedValues(item));
+        await docRef.set(removeUndefinedValues(item));
         addedCount++;
       }
     }
     return addedCount;
   } catch (err) {
-    console.error("Failed to seed initial opportunities:", err);
+    console.error("Failed to seed initial opportunities via Admin SDK:", err);
     return 0;
   }
 }
@@ -661,13 +655,18 @@ export async function fetchArbeitnowInternships(): Promise<Partial<OpportunityIt
 }
 
 /**
- * Main Sync Pipeline orchestrator
+ * Main Sync Pipeline orchestrator using Firebase Admin SDK
  */
 export async function syncExternalOpportunities(): Promise<OpportunitySyncResult[]> {
   const results: OpportunitySyncResult[] = [];
   const now = new Date().toISOString();
+  const adminDb = getAdminDb();
 
-  // 1. Ensure seed opportunities are present
+  if (!adminDb) {
+    throw new Error("Firebase Admin SDK is required for opportunity synchronization.");
+  }
+
+  // 1. Ensure seed opportunities are present (idempotent, won't overwrite existing)
   const seededCount = await seedInitialOpportunities();
   results.push({
     sourceName: "SC TECH Verified Curated Seeds",
@@ -688,8 +687,8 @@ export async function syncExternalOpportunities(): Promise<OpportunitySyncResult
       const dedupKey = generateDedupKey(item.title, item.company, item.opportunityType || "INTERNSHIP");
       const id = slugify(`${item.company}-${item.title}`).substring(0, 60);
 
-      const docRef = doc(db, OPPORTUNITY_COLLECTION, id);
-      const existing = await getDoc(docRef);
+      const docRef = adminDb.collection(OPPORTUNITY_COLLECTION).doc(id);
+      const existing = await docRef.get();
 
       const record: OpportunityItem = {
         id,
@@ -721,11 +720,11 @@ export async function syncExternalOpportunities(): Promise<OpportunitySyncResult
         category: item.category || "Engineering"
       };
 
-      if (!existing.exists()) {
-        await setDoc(docRef, removeUndefinedValues(record));
+      if (!existing.exists) {
+        await docRef.set(removeUndefinedValues(record));
         newAdded++;
       } else {
-        await updateDoc(docRef, {
+        await docRef.update({
           lastVerifiedAt: now,
           status: "ACTIVE"
         });
@@ -762,8 +761,8 @@ export async function syncExternalOpportunities(): Promise<OpportunitySyncResult
       const dedupKey = generateDedupKey(item.title, item.company, item.opportunityType || "INTERNSHIP");
       const id = slugify(`${item.company}-${item.title}`).substring(0, 60);
 
-      const docRef = doc(db, OPPORTUNITY_COLLECTION, id);
-      const existing = await getDoc(docRef);
+      const docRef = adminDb.collection(OPPORTUNITY_COLLECTION).doc(id);
+      const existing = await docRef.get();
 
       const record: OpportunityItem = {
         id,
@@ -795,11 +794,11 @@ export async function syncExternalOpportunities(): Promise<OpportunitySyncResult
         category: item.category || "Technology"
       };
 
-      if (!existing.exists()) {
-        await setDoc(docRef, removeUndefinedValues(record));
+      if (!existing.exists) {
+        await docRef.set(removeUndefinedValues(record));
         newAdded++;
       } else {
-        await updateDoc(docRef, {
+        await docRef.update({
           lastVerifiedAt: now,
           status: "ACTIVE"
         });
@@ -844,7 +843,8 @@ export interface QueryOpportunitiesOptions {
 }
 
 /**
- * Retrieve opportunities from Firestore with filtering and pagination
+ * Retrieve opportunities from Firestore using Firebase Admin SDK on the server.
+ * Never attempts unauthorized client-side writes during read queries.
  */
 export async function getOpportunities(options: QueryOpportunitiesOptions = {}) {
   const {
@@ -863,37 +863,26 @@ export async function getOpportunities(options: QueryOpportunitiesOptions = {}) 
 
   try {
     let all: OpportunityItem[] = [];
-    try {
-      const oppsRef = collection(db, OPPORTUNITY_COLLECTION);
-      const snap = await getDocs(oppsRef);
-      snap.forEach((d) => {
-        const data = d.data() as OpportunityItem;
-        all.push({ ...data, id: d.id });
-      });
+    const adminDb = getAdminDb();
 
-      // If Firestore collection is empty, trigger initial seed automatically
-      if (all.length === 0) {
-        try {
-          await seedInitialOpportunities();
-          const newSnap = await getDocs(oppsRef);
-          all = [];
-          newSnap.forEach((d) => {
-            all.push({ ...(d.data() as OpportunityItem), id: d.id });
-          });
-        } catch {
-          // ignore seeding write error if rules not yet updated
-        }
+    if (adminDb) {
+      try {
+        const snap = await adminDb.collection(OPPORTUNITY_COLLECTION).get();
+        snap.forEach((d) => {
+          const data = d.data() as OpportunityItem;
+          all.push({ ...data, id: d.id });
+        });
+      } catch (fsErr) {
+        console.warn("Firestore opportunities query notice:", fsErr);
       }
-    } catch (fsErr) {
-      console.warn("Firestore opportunities query fallback notice:", fsErr);
     }
 
-    // Ensure we always have opportunities even if Firestore rules are pending deployment
+    // If Firestore collection has no documents yet, provide in-memory verified opportunities without unauthorized client writes
     if (all.length === 0) {
       all = VERIFIED_SEED_OPPORTUNITIES.map((seed, idx) => ({
         ...seed,
-        id: `seed_${idx + 1}`,
-        slug: slugify(`${seed.company}-${seed.title}`),
+        id: slugify(`${seed.company}-${seed.title}`).substring(0, 60) || `seed_${idx + 1}`,
+        slug: slugify(`${seed.company}-${seed.title}`).substring(0, 60),
         dedupKey: generateDedupKey(seed.title, seed.company, seed.opportunityType),
         fetchedAt: new Date().toISOString(),
         lastVerifiedAt: new Date().toISOString(),
@@ -991,16 +980,25 @@ export async function getOpportunities(options: QueryOpportunitiesOptions = {}) 
 }
 
 export async function toggleOpportunityFeature(id: string, featured: boolean): Promise<void> {
-  const docRef = doc(db, OPPORTUNITY_COLLECTION, id);
-  await updateDoc(docRef, { featured, updatedAt: serverTimestamp() });
+  const adminDb = getAdminDb();
+  if (!adminDb) throw new Error("Firebase Admin SDK is not configured.");
+  await adminDb.collection(OPPORTUNITY_COLLECTION).doc(id).update({
+    featured,
+    updatedAt: new Date().toISOString()
+  });
 }
 
 export async function toggleOpportunityVisibility(id: string, hidden: boolean): Promise<void> {
-  const docRef = doc(db, OPPORTUNITY_COLLECTION, id);
-  await updateDoc(docRef, { hidden, updatedAt: serverTimestamp() });
+  const adminDb = getAdminDb();
+  if (!adminDb) throw new Error("Firebase Admin SDK is not configured.");
+  await adminDb.collection(OPPORTUNITY_COLLECTION).doc(id).update({
+    hidden,
+    updatedAt: new Date().toISOString()
+  });
 }
 
 export async function deleteOpportunity(id: string): Promise<void> {
-  const docRef = doc(db, OPPORTUNITY_COLLECTION, id);
-  await deleteDoc(docRef);
+  const adminDb = getAdminDb();
+  if (!adminDb) throw new Error("Firebase Admin SDK is not configured.");
+  await adminDb.collection(OPPORTUNITY_COLLECTION).doc(id).delete();
 }

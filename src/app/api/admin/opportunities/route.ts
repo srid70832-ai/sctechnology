@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { getOpportunities, OPPORTUNITY_COLLECTION } from "@/lib/opportunity-pipeline";
-import { db } from "@/lib/firebase";
-import { doc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { getAdminDb } from "@/lib/firebase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -52,14 +51,18 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Opportunity ID is required" }, { status: 400 });
     }
 
-    const docRef = doc(db, OPPORTUNITY_COLLECTION, id);
-    const updates: any = { updatedAt: serverTimestamp() };
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ error: "Firebase Admin SDK not initialized" }, { status: 500 });
+    }
+
+    const updates: Record<string, any> = { updatedAt: new Date().toISOString() };
 
     if (typeof featured === "boolean") updates.featured = featured;
     if (typeof hidden === "boolean") updates.hidden = hidden;
     if (status) updates.status = status;
 
-    await updateDoc(docRef, updates);
+    await adminDb.collection(OPPORTUNITY_COLLECTION).doc(id).update(updates);
 
     return NextResponse.json({
       success: true,
@@ -87,8 +90,12 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Opportunity ID is required" }, { status: 400 });
     }
 
-    const docRef = doc(db, OPPORTUNITY_COLLECTION, id);
-    await deleteDoc(docRef);
+    const adminDb = getAdminDb();
+    if (!adminDb) {
+      return NextResponse.json({ error: "Firebase Admin SDK not initialized" }, { status: 500 });
+    }
+
+    await adminDb.collection(OPPORTUNITY_COLLECTION).doc(id).delete();
 
     return NextResponse.json({
       success: true,
