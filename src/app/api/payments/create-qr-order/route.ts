@@ -80,23 +80,26 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "This project is free and does not require payment." }, { status: 400 });
       }
     } else if (hackathonId) {
-      targetProductId = hackathonId;
-      productType = "HACKATHON_REGISTRATION";
-      let fee = 35;
-      let hTitle = "Hackathon";
-
-      if (adminDb) {
-        const hDoc = await adminDb.collection("hackathons").doc(hackathonId).get();
-        if (hDoc.exists) {
-          const hData = hDoc.data()!;
-          fee = Number(hData.entryFee ?? hData.registrationFee ?? 35);
-          hTitle = hData.title || "Hackathon";
-        }
+      const { resolveHackathon } = await import("@/lib/hackathons/resolve-hackathon");
+      const hackathon = await resolveHackathon(hackathonId);
+      if (!hackathon) {
+        return NextResponse.json({ error: "Hackathon not found or invalid." }, { status: 404 });
       }
 
+      const fee = Number(hackathon.registrationFee ?? hackathon.entryFee ?? 0);
+      if (fee <= 0) {
+        return NextResponse.json({ error: "This hackathon is free and does not require payment." }, { status: 400 });
+      }
+
+      if (hackathon.registrationDeadline && new Date() > new Date(hackathon.registrationDeadline)) {
+        return NextResponse.json({ error: "Registration deadline has passed for this hackathon." }, { status: 400 });
+      }
+
+      targetProductId = hackathon.id || hackathonId;
+      targetProductTitle = hackathon.title || "Hackathon";
+      productType = "HACKATHON_REGISTRATION";
       amount = fee;
-      targetProductTitle = hTitle;
-      planName = `${hTitle} — Hackathon Entry Registration`;
+      planName = `${targetProductTitle} — Hackathon Registration`;
     } else if (planId) {
       const verified = await getVerifiedPlanAmount(planId, billingCycle);
       amount = verified.amount;

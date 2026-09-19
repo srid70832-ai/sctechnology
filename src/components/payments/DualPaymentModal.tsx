@@ -156,6 +156,7 @@ export const DualPaymentModal: React.FC<DualPaymentModalProps> = ({
                   projectId: productType === "PROJECT_PURCHASE" ? productId : undefined,
                   duration,
                   planId: productType === "SUBSCRIPTION" ? productId : undefined,
+                  hackathonId: productType === "HACKATHON_REGISTRATION" ? productId : undefined,
                   billingCycle,
                 }),
               });

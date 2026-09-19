@@ -242,6 +242,194 @@ export async function POST(req: Request) {
       });
     }
 
+    const targetHackathonId = orderData.hackathonId || body.hackathonId;
+
+    // B) Handle Hackathon Registration Payment Verification
+    if (orderType === "HACKATHON" || targetHackathonId) {
+      const { resolveHackathon } = await import("@/lib/hackathons/resolve-hackathon");
+      const hackathon = await resolveHackathon(targetHackathonId);
+      const hackathonTitle = hackathon?.title || orderData.hackathonTitle || "Hackathon";
+      const actualHackathonId = hackathon?.id || targetHackathonId;
+      const verifiedFee = Number(orderData.amount || hackathon?.registrationFee || hackathon?.entryFee || 0);
+
+      await orderSnap.docs[0].ref.update({
+        userId: uid,
+        userName,
+        userEmail,
+        hackathonId: actualHackathonId,
+        hackathonTitle,
+        type: "HACKATHON",
+        razorpayPaymentId: paymentId,
+        status: "SUCCESS",
+        mode: getRazorpayMode(),
+        verifiedAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Record in Prisma payments
+      let paymentRecordId: string | null = null;
+      try {
+        const { prisma } = await import("@/lib/prisma");
+        const payment = await prisma.payment.create({
+          data: {
+            orderId,
+            paymentId,
+            signature: signature || "",
+            userId: uid,
+            hackathonId: actualHackathonId,
+            amount: verifiedFee,
+            currency: "INR",
+            status: "SUCCESS",
+            gateway: "RAZORPAY",
+            verifiedAt: new Date(),
+          },
+        });
+        paymentRecordId = payment.id;
+      } catch (pErr) {
+        console.warn("Prisma payment record sync notice:", pErr);
+      }
+
+      // 1. Check & update team member payment if user is in a team
+      try {
+        const { findUserTeam, saveTeamDoc } = await import("@/lib/team-storage");
+        const { computeTeamPaymentStatus } = await import("@/lib/hackathon-team-models");
+        const team = await findUserTeam(actualHackathonId, uid);
+        if (team) {
+          const updatedMembers = team.members.map((m) => {
+            if (m.userId === uid) {
+              return {
+                ...m,
+                paymentStatus: "PAID" as const,
+                paymentId,
+                orderId,
+                paymentAmount: verifiedFee,
+                paidAt: new Date().toISOString(),
+              };
+            }
+            return m;
+          });
+          const stats = computeTeamPaymentStatus({ ...team, members: updatedMembers }, verifiedFee);
+          await saveTeamDoc({
+            ...team,
+            members: updatedMembers,
+            paymentStatus: stats.paymentStatus,
+            paidMemberCount: stats.paidMemberCount,
+            totalPaidAmount: stats.totalPaidAmount,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      } catch (teamErr) {
+        console.warn("Team status update notice:", teamErr);
+      }
+
+      // 2. Register or update Prisma hackathon registration
+      const regNo = hackathon?.slug ? (await import("@/lib/utils")).generateRegistrationNo(hackathon.slug) : `REG-${Date.now().toString().slice(-6)}`;
+      try {
+        const { prisma } = await import("@/lib/prisma");
+        const existingReg = await prisma.hackathonRegistration.findFirst({
+          where: { hackathonId: actualHackathonId, userId: uid },
+        });
+
+        if (existingReg) {
+          await prisma.hackathonRegistration.update({
+            where: { id: existingReg.id },
+            data: {
+              paymentId: paymentRecordId,
+              status: "CONFIRMED",
+            },
+          });
+        } else {
+          await prisma.hackathonRegistration.create({
+            data: {
+              hackathonId: actualHackathonId,
+              userId: uid,
+              registrationNo: regNo,
+              paymentId: paymentRecordId,
+              status: "CONFIRMED",
+            },
+          });
+        }
+      } catch (regErr) {
+        console.warn("Prisma registration status notice:", regErr);
+      }
+
+      // 3. Update Firestore registration document
+      try {
+        const regSnap = await adminDb.collection("hackathonRegistrations")
+          .where("studentId", "==", uid)
+          .where("hackathonId", "==", actualHackathonId)
+          .limit(1)
+          .get();
+
+        if (!regSnap.empty) {
+          await regSnap.docs[0].ref.update({
+            paymentStatus: "PAID",
+            paymentId,
+            orderId,
+            amountPaid: verifiedFee,
+            updatedAt: new Date().toISOString(),
+          });
+        } else {
+          await adminDb.collection("hackathonRegistrations").add({
+            studentId: uid,
+            studentName: userName,
+            studentEmail: userEmail,
+            hackathonId: actualHackathonId,
+            hackathonTitle,
+            paymentStatus: "PAID",
+            paymentId,
+            orderId,
+            amountPaid: verifiedFee,
+            registrationType: "INDIVIDUAL",
+            registrationNo: regNo,
+            registeredAt: new Date().toISOString(),
+            createdAt: new Date(),
+          });
+        }
+      } catch (fsRegErr) {
+        console.warn("Firestore registration document notice:", fsRegErr);
+      }
+
+      // 4. Send Confirmation Notification
+      await adminDb.collection("notifications").add({
+        userId: uid,
+        title: `Hackathon Registration Confirmed 🎉`,
+        message: `Your payment of ₹${verifiedFee} for "${hackathonTitle}" was verified in ${getRazorpayMode()} mode. You are officially registered!`,
+        type: "HACKATHON",
+        read: false,
+        link: `/hackathons/${hackathon?.slug || actualHackathonId}`,
+        createdAt: new Date(),
+      });
+
+      // 5. Referral conversion
+      try {
+        await processReferralConversion({
+          referredUid: uid,
+          eventType: "HACKATHON_REGISTERED",
+          amount: verifiedFee,
+          metadata: {
+            hackathonId: actualHackathonId,
+            hackathonTitle,
+            orderId,
+            paymentId,
+          },
+        });
+      } catch (refErr) {
+        console.warn("Hackathon referral conversion notice:", refErr);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Payment verified! You are officially registered for "${hackathonTitle}".`,
+        hackathonRegistered: true,
+        hackathonId: actualHackathonId,
+        hackathonTitle,
+        registrationNo: regNo,
+        amount: verifiedFee,
+        mode: getRazorpayMode(),
+      });
+    }
+
     const planId = String(orderData.planId || "").toUpperCase();
     const verifiedPlan = DEFAULT_PLANS.find((plan) => plan.code === planId);
     if (!verifiedPlan) {
